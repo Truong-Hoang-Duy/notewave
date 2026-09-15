@@ -1,7 +1,9 @@
 import { Archive, ArchiveRestore, ArrowLeft, Check, Clock, Download, FileText, Layers, PenLine, Pencil, Sparkles, Trash2, Users, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { groupActions } from '../hooks/useGroups'
+import { useScrolled } from '../hooks/useScrolled'
 import { useUploadStatus } from '../hooks/useUploadStatus'
+import { useViewportFit } from '../hooks/useViewportFit'
 import { api } from '../lib/api'
 import { formatDateTime, formatDuration, speakerColor, speakerLabel } from '../lib/format'
 import ConfirmDialog from './ConfirmDialog'
@@ -162,6 +164,8 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [changingGroup, setChangingGroup] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const fitRef = useViewportFit()
+  const [transcriptScrolled, onTranscriptScroll] = useScrolled()
 
   useEffect(() => {
     const controller = new AbortController()
@@ -421,9 +425,15 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
       )}
 
       {session.status === 'completed' && (
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
-          <Card className="p-5 sm:p-7">
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+        // Từ xl: 2 cột vừa khung màn hình, mỗi cột tự cuộn nội dung (header từng khối đứng yên).
+        // Dưới xl (xếp dọc): trang cuộn tự nhiên theo nội dung.
+        <div ref={fitRef} className="grid gap-6 xl:h-(--fit-h) xl:grid-cols-[minmax(0,1fr)_20rem] xl:grid-rows-[minmax(0,1fr)]">
+          <Card className="xl:flex xl:min-h-0 xl:flex-col xl:overflow-hidden">
+            <div
+              className={`relative z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line px-5 pt-5 pb-4 transition-shadow duration-200 sm:px-7 sm:pt-7 ${
+                transcriptScrolled ? 'shadow-[0_10px_18px_-14px_rgb(29_27_24/0.28)]' : ''
+              }`}
+            >
               <h2 className="text-sm font-semibold text-ink">Transcript</h2>
               {speakers.length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted">
@@ -437,26 +447,29 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
                 </div>
               )}
             </div>
-            {editing ? (
-              <TranscriptEditor
-                initialSegments={session.segments}
-                partsById={partsById}
-                saving={savingSegments}
-                onSave={saveSegments}
-                onCancel={cancelEditing}
-                onDirtyChange={setEditDirty}
-              />
-            ) : (
-              <TranscriptView
-                segments={session.segments}
-                partsById={partsById}
-                placeholder={<EmptyState icon={FileText} title="Transcript trống" description="Không nhận dạng được lời nói nào trong phiên này." />}
-              />
-            )}
+            <div onScroll={onTranscriptScroll} className="scroll-area px-5 py-6 sm:px-7 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain">
+              {editing ? (
+                <TranscriptEditor
+                  initialSegments={session.segments}
+                  partsById={partsById}
+                  saving={savingSegments}
+                  onSave={saveSegments}
+                  onCancel={cancelEditing}
+                  onDirtyChange={setEditDirty}
+                />
+              ) : (
+                <TranscriptView
+                  segments={session.segments}
+                  partsById={partsById}
+                  placeholder={<EmptyState icon={FileText} title="Transcript trống" description="Không nhận dạng được lời nói nào trong phiên này." />}
+                />
+              )}
+            </div>
           </Card>
 
-          <aside id="ai-summary" className="scroll-mt-24 xl:sticky xl:top-24">
+          <aside id="ai-summary" className="scroll-mt-24 xl:flex xl:min-h-0 xl:flex-col">
             <SummaryPanel
+              title={session.title}
               summary={session.summary}
               outdated={session.summary_outdated}
               loading={summarizing}

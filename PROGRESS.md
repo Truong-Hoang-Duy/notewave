@@ -331,3 +331,45 @@
   - Dữ liệu cũ trong Supabase local (volume Docker) không còn được dùng; xoá bằng Docker Desktop nếu muốn giải phóng dung lượng.
   - Trên mạng dây ở máy dev, cổng 6543 bị chặn: local chỉ kết nối được DB khi IP pooler đi qua WiFi. IP pooler (AWS)
     có thể đổi → nếu lại gặp `connection timeout expired`, chạy lại script split-tunnel.
+
+## [2026-09-15] — Trang chi tiết phiên: 2 cột vừa khung màn hình, cuộn độc lập + nút sao chép tóm tắt
+- Đã làm:
+  - **Layout (từ breakpoint `xl`, khi Transcript và Tóm tắt đứng cạnh nhau):** khối 2 cột cao đúng phần viewport còn lại
+    (từ dưới toolbar tới đáy màn hình, trừ padding dưới của `<main>`), trang không còn cuộn theo độ dài nội dung →
+    breadcrumb/tiêu đề/toolbar đứng yên. Mỗi khối có header cố định ("Transcript" + người nói; "Tóm tắt bằng AI" +
+    nút) và vùng nội dung tự cuộn riêng (`overflow-y-auto`, `overscroll-contain`), 2 cột cuộn độc lập. Khối tóm tắt co
+    theo nội dung, chỉ bị chặn (và cuộn) khi dài hơn cột. Chiều cao đo bằng callback ref `useViewportFit` (biến CSS
+    `--fit-h`, tối thiểu 420px; tự đo lại qua `ResizeObserver(document.body)` + `resize` khi đổi tên phiên, hiện cảnh báo
+    lưu trữ, banner máy chủ…). Header hiện bóng mờ (tóm tắt: thêm viền) khi vùng dưới đã cuộn (`useScrolled`).
+    Thanh cuộn mảnh tông giấy ấm + `scrollbar-gutter: stable` (class `.scroll-area` trong `index.css`).
+  - **Dưới `xl` (tablet/mobile, 2 khối xếp dọc):** giữ cuộn trang tự nhiên như trước, không ép vừa 1 màn hình.
+  - Thanh công cụ chế độ "Chỉnh sửa transcript" (sticky): dưới `xl` vẫn dính dưới header app, từ `xl` dính đầu vùng cuộn
+    của khối transcript (`xl:top-0`). Bỏ `xl:sticky` của sidebar tóm tắt (không còn cần).
+  - **Nút sao chép tóm tắt** (cạnh "Tạo lại", chỉ có khi đã có tóm tắt): chép Markdown (`# tiêu đề phiên`, `## Tóm tắt`,
+    `## Ý chính` bullet, `## Việc cần làm` checklist `- [ ] việc — Phụ trách: … · Hạn: …`, `## Quyết định`) — định dạng
+    ở `lib/summary.js::summaryToMarkdown`. Clipboard API, dự phòng textarea + `execCommand` khi không phải secure context
+    (`lib/clipboard.js`); lỗi → toast, không `alert()`. Phản hồi: icon copy → dấu tick (scale/opacity), nền brand nhạt
+    ~1,8 giây; từ `sm` tới dưới `xl` có nhãn "Sao chép"/"Đã chép" (2 nhãn chồng nhau giữ nguyên bề rộng), ở sidebar hẹp
+    `xl` và mobile chỉ icon + bong bóng "Đã chép" nổi bên dưới; có `role="status"` cho trình đọc màn hình.
+- File/module đã thay đổi: `client/src/components/SessionDetail.jsx`, `client/src/components/SummaryPanel.jsx`,
+  `client/src/components/TranscriptEditor.jsx`, `client/src/index.css`, mới: `client/src/hooks/useViewportFit.js`,
+  `client/src/hooks/useScrolled.js`, `client/src/lib/clipboard.js`, `client/src/lib/summary.js`, `PROGRESS.md`
+- Đã kiểm thử: `vite build` OK; `oxlint` không có cảnh báo mới. Chạy bản build với API giả lập (server Node tạm trong
+  scratchpad, không đụng DB) + Edge headless: 1440×900 → `scrollHeight` trang = 900 (không cuộn trang), 2 vùng cuộn
+  riêng hoạt động độc lập, header giữ nguyên, tóm tắt ngắn co theo nội dung; 1024px → xếp dọc, cuộn trang bình thường;
+  nút sao chép (giả lập `clipboard.writeText`) → nội dung Markdown đúng, nhãn/tick đổi rồi trở lại sau ~1,8 giây, bề rộng
+  nút không đổi; khi trình duyệt từ chối clipboard → hiện toast lỗi.
+- Đang dang dở / chưa xong: chưa kiểm tra tay trên thiết bị mobile thật và với dữ liệu thật (chế độ chỉnh sửa transcript
+  ở `xl` mới kiểm tra qua code, chưa chụp màn hình).
+- Việc cần làm tiếp theo: người dùng thử trên trình duyệt thật (desktop ≥1280px + mobile), đặc biệt chế độ chỉnh sửa
+  transcript trong khung cuộn mới.
+- Vấn đề đã biết: màn hình desktop thấp (<~720px) hoặc header rất cao (tiêu đề dài nhiều dòng + cảnh báo lưu trữ) → khối
+  2 cột giữ tối thiểu 420px nên trang có thể cuộn thêm một đoạn ngắn.
+
+## [2026-09-15] — Tối giản tasks.json: bỏ bước chuẩn bị, chỉ mở đúng 2 terminal BE và FE
+- Đã làm:
+  - Xoá task "Chuẩn bị (deps + kiểm tra DATABASE_URL)" trong `.vscode/tasks.json`.
+  - Task mặc định "Run NoteWave (FE + BE)" trực tiếp khởi chạy `Backend (FastAPI)` rồi đến `Frontend (Vite)` theo thứ tự tuần tự (`dependsOrder: sequence`).
+  - Khi ấn `Ctrl+Shift+B` hoặc Run Task, VS Code chỉ mở đúng 2 terminal chuyên dụng (Backend và Frontend), không còn terminal thứ 3 thừa phải ấn phím để đóng.
+- File/module đã thay đổi: `.vscode/tasks.json`, `PROGRESS.md`
+

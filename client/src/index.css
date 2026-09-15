@@ -90,6 +90,13 @@
     background-size: 200% 100%;
     @apply animate-shimmer rounded-md;
   }
+
+  /* Vùng cuộn nội bộ: thanh cuộn mảnh tông giấy ấm; giữ chỗ thanh cuộn để nội dung không bị xô khi bắt đầu tràn. */
+  .scroll-area {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+    scrollbar-gutter: stable;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

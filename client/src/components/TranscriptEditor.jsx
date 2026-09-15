@@ -164,7 +164,8 @@ export default function TranscriptEditor({ initialSegments, partsById, saving, o
 
   return (
     <div>
-      <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-10 -mx-5 mb-4 border-b border-line bg-surface/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
+      {/* Dưới xl dính dưới header app (trang cuộn); từ xl dính đầu vùng cuộn của khối transcript. */}
+      <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-10 xl:top-0 -mx-5 mb-4 border-b border-line bg-surface/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
         <div className="flex flex-wrap items-center gap-2">
           <div className="mr-auto min-w-0 text-[13px] leading-snug">
             <p className="font-semibold text-ink">Đang chỉnh sửa transcript</p>
