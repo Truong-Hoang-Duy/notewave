@@ -1,12 +1,11 @@
 // Khởi động môi trường dev NoteWave bằng MỘT lệnh: `npm run dev` (hoặc dev.bat / dev.ps1 / VS Code task).
-// Chỉ cần bật Docker Desktop trước; script tự lo phần còn lại:
-//   1. Lần đầu: cài dependencies còn thiếu (npm gốc + client, Python venv) và tạo .env từ .env.example.
-//   2. Chờ Docker sẵn sàng (nếu vừa bật Docker Desktop).
-//   3. Bật Supabase local (Postgres) nếu chưa chạy.
-//   4. Chạy backend FastAPI (cổng 8000) + frontend Vite (cổng 5173).
-// Tuỳ chọn: `node run-dev.js --prepare` chỉ làm bước 1–3 rồi thoát (dùng cho VS Code task).
+// Local dùng CHUNG database Supabase (hosted) với production — không cần Docker hay Supabase CLI:
+//   1. Lần đầu: cài dependencies còn thiếu (client, Python venv) và tạo .env từ .env.example.
+//   2. Kiểm tra DATABASE_URL trong .env đã là connection string Supabase thật.
+//   3. Chạy backend FastAPI (cổng 8000) + frontend Vite (cổng 5173).
+// Tuỳ chọn: `node run-dev.js --prepare` chỉ làm bước 1–2 rồi thoát (dùng cho VS Code task).
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,7 +19,6 @@ const info = color(36)
 const ok = color(32)
 const warn = color(33)
 const fail = color(31)
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 function run(cmd, args, { cwd = ROOT, quiet = false } = {}) {
   const res = spawnSync(cmd, args, { cwd, stdio: quiet ? 'pipe' : 'inherit', shell: true, encoding: 'utf8' })
@@ -33,15 +31,10 @@ function exitWith(message) {
 }
 
 // ---- 1. Dependencies & .env (chỉ chạy khi thiếu) ----
-const supabaseBin = path.join(ROOT, 'node_modules', '.bin', isWin ? 'supabase.cmd' : 'supabase')
 const pythonExe = isWin
   ? path.join(ROOT, 'server', '.venv', 'Scripts', 'python.exe')
   : path.join(ROOT, 'server', '.venv', 'bin', 'python')
 
-if (!existsSync(supabaseBin)) {
-  info('📦 Cài dependencies ở gốc repo (Supabase CLI)...')
-  if (!run('npm', ['install'])) exitWith('npm install ở gốc repo thất bại.')
-}
 if (!existsSync(path.join(ROOT, 'client', 'node_modules'))) {
   info('📦 Cài dependencies frontend...')
   if (!run('npm', ['install'], { cwd: path.join(ROOT, 'client') })) exitWith('npm install trong client/ thất bại.')
@@ -61,41 +54,40 @@ if (!existsSync(path.join(ROOT, '.env'))) {
   warn('📝 Đã tạo .env từ .env.example — nhớ điền SONIOX_API_KEY và OPENAI_API_KEY để dùng ghi âm / tóm tắt.')
 }
 
-// ---- 2. Docker ----
-const dockerReady = () => run('docker', ['info'], { quiet: true })
-if (!dockerReady()) {
-  if (!run('docker', ['--version'], { quiet: true })) {
-    exitWith('Không tìm thấy Docker. Cài Docker Desktop: https://www.docker.com/products/docker-desktop/')
+// ---- 2. DATABASE_URL (Supabase thật, dùng chung với production) ----
+// Đọc thô file .env (không cần thư viện): lấy dòng DATABASE_URL= cuối cùng, bỏ comment/dấu nháy.
+function readEnvValue(file, key) {
+  if (!existsSync(file)) return undefined
+  let value
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const m = line.match(new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`))
+    if (m) value = m[1].replace(/\s+#.*$/, '').trim().replace(/^["']|["']$/g, '')
   }
-  warn('⏳ Docker chưa sẵn sàng — đang chờ (hãy bật Docker Desktop nếu chưa bật)...')
-  const deadline = Date.now() + 120_000
-  while (!dockerReady()) {
-    if (Date.now() > deadline) exitWith('Docker chưa chạy sau 2 phút. Bật Docker Desktop rồi chạy lại `npm run dev`.')
-    await sleep(3000)
-  }
+  return value
 }
-ok('🐳 Docker đã sẵn sàng.')
-
-// ---- 3. Supabase local (Postgres) ----
-if (run(`"${supabaseBin}"`, ['status'], { quiet: true })) {
-  ok('🗄️  Supabase local đang chạy (Postgres: 127.0.0.1:54322, Studio: http://127.0.0.1:54323).')
-} else {
-  info('🗄️  Đang bật Supabase local (lần đầu sẽ tải image Docker, có thể mất vài phút)...')
-  if (!run(`"${supabaseBin}"`, ['start'])) {
-    exitWith(
-      'Không bật được Supabase local. Xem lỗi phía trên (thường do trùng cổng 5432x với project Supabase khác — ' +
-        'dừng project đó bằng `npx supabase stop --project-id <tên>`).',
-    )
-  }
-  ok('🗄️  Supabase local đã chạy (Postgres: 127.0.0.1:54322, Studio: http://127.0.0.1:54323).')
+const databaseUrl =
+  process.env.DATABASE_URL ?? readEnvValue(path.join(ROOT, 'server', '.env'), 'DATABASE_URL') ?? readEnvValue(path.join(ROOT, '.env'), 'DATABASE_URL')
+if (!databaseUrl) {
+  exitWith(
+    'DATABASE_URL trong .env đang trống. Supabase Dashboard > nút Connect (hoặc Project Settings > Database) > ' +
+      'Transaction pooler (cổng 6543) > copy connection string, thay mật khẩu, thêm ?sslmode=require rồi dán vào .env.',
+  )
 }
+if (/@(127\.0\.0\.1|localhost):54322\b/.test(databaseUrl)) {
+  exitWith('DATABASE_URL vẫn trỏ vào Supabase local (127.0.0.1:54322) — đã bỏ Docker/Supabase CLI. Dán connection string Supabase thật vào .env.')
+}
+if (!/^postgres(ql)?(\+psycopg)?:\/\//.test(databaseUrl)) {
+  exitWith('DATABASE_URL phải là connection string Postgres của Supabase (bắt đầu bằng postgresql://).')
+}
+const dbHost = databaseUrl.replace(/^[^@]*@/, '').replace(/[/?].*$/, '')
+ok(`🗄️  Database: Supabase ${dbHost} (DÙNG CHUNG với production — cẩn thận khi xoá/sửa dữ liệu).`)
 
 if (prepareOnly) {
   ok('✅ Môi trường dev đã sẵn sàng.')
   process.exit(0)
 }
 
-// ---- 4. Backend + Frontend ----
+// ---- 3. Backend + Frontend ----
 info('🚀 Đang khởi động NoteWave Backend (FastAPI trên port 8000)...')
 const backend = spawn(`"${pythonExe}"`, ['-m', 'uvicorn', 'app.main:app', '--reload', '--port', '8000'], {
   cwd: path.join(ROOT, 'server'),
@@ -103,30 +95,51 @@ const backend = spawn(`"${pythonExe}"`, ['-m', 'uvicorn', 'app.main:app', '--rel
   shell: true,
 })
 
-ok('✨ Đang khởi động NoteWave Frontend (Vite & tự động mở trình duyệt)...')
-const frontend = spawn('npm', ['run', 'dev'], {
-  cwd: path.join(ROOT, 'client'),
-  stdio: 'inherit',
-  shell: true,
-})
-
+let frontend
 let stopping = false
 const cleanup = () => {
   if (stopping) return
   stopping = true
   warn('\n🛑 Đang dừng NoteWave (backend + frontend)...')
   for (const child of [backend, frontend]) {
+    if (!child) continue
     try {
       // shell: true tạo cây tiến trình con -> trên Windows cần taskkill /T để dừng hẳn uvicorn/vite.
       if (isWin && child.pid) spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
       else child.kill()
     } catch {}
   }
-  info('ℹ️  Supabase local vẫn chạy nền để lần sau khởi động nhanh. Tắt hẳn: npm run db:stop')
   process.exit(0)
 }
 
 process.on('SIGINT', cleanup)
 process.on('SIGTERM', cleanup)
 backend.on('exit', (code) => !stopping && code && (fail(`Backend dừng với mã ${code}.`), cleanup()))
+
+// Chờ backend sẵn sàng rồi mới bật frontend: backend khởi động ~7 giây (init_db qua mạng tới Supabase);
+// bật song song thì Vite mở trình duyệt trước và proxy /api báo ECONNREFUSED.
+const BACKEND_READY_TIMEOUT_MS = 90_000
+const backendDeadline = Date.now() + BACKEND_READY_TIMEOUT_MS
+let backendReady = false
+while (!stopping && Date.now() < backendDeadline) {
+  try {
+    const res = await fetch('http://127.0.0.1:8000/api/health', { signal: AbortSignal.timeout(3000) })
+    if (res.ok) {
+      const body = await res.json().catch(() => ({}))
+      if (body.database === 'error') warn(`⚠️  Backend chạy nhưng không kết nối được database (${body.database_error}).`)
+      backendReady = true
+      break
+    }
+  } catch {}
+  await new Promise((r) => setTimeout(r, 500))
+}
+if (stopping) process.exit(1)
+if (!backendReady) warn('⚠️  Backend chưa phản hồi /api/health sau 90 giây — vẫn bật frontend, xem log backend phía trên.')
+
+ok('✨ Đang khởi động NoteWave Frontend (Vite & tự động mở trình duyệt)...')
+frontend = spawn('npm', ['run', 'dev'], {
+  cwd: path.join(ROOT, 'client'),
+  stdio: 'inherit',
+  shell: true,
+})
 frontend.on('exit', (code) => !stopping && code && (fail(`Frontend dừng với mã ${code}.`), cleanup()))

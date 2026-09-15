@@ -1,42 +1,22 @@
-"""Test suite chạy trên Postgres thật (Supabase local), KHÔNG dùng SQLite.
+"""Test suite chạy trên Postgres thật của Supabase — cùng project (cùng DB) với production.
 
-Chuẩn bị: `npx supabase start` ở gốc repo. Mặc định dùng database riêng `notewave_test`
-trên Postgres local (tự tạo nếu chưa có) để không đụng dữ liệu dev trong database `postgres`.
-Đổi bằng biến môi trường TEST_DATABASE_URL nếu cần.
+URL lấy từ `TEST_DATABASE_URL` nếu có, không thì dùng `DATABASE_URL` trong `.env`.
+AN TOÀN DỮ LIỆU: test KHÔNG dùng schema `public` (dữ liệu thật). Mọi bảng test nằm trong schema riêng
+`notewave_test` (tự tạo): engine được gắn `schema_translate_map` nên mọi câu lệnh SQLAlchemy sinh ra đều ghi
+rõ tên schema (không phụ thuộc `search_path`, vốn không giữ được qua Transaction pooler). SQL thô trong test
+phải dùng `qualified()` bên dưới. TRUNCATE sau mỗi test chỉ chạy trên schema test.
 """
 
 import os
 
-import psycopg
 import pytest
-from psycopg import sql
-from sqlalchemy.engine import make_url
+from sqlalchemy import text
 
-TEST_DATABASE_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54322/notewave_test"
-)
-_url = make_url(TEST_DATABASE_URL)
-if "test" not in (_url.database or ""):
-    raise RuntimeError(
-        f"TEST_DATABASE_URL phải trỏ tới database có chữ 'test' (hiện: {_url.database!r}) — "
-        "test suite TRUNCATE toàn bộ bảng sau mỗi test."
-    )
-
-
-def _ensure_test_database() -> None:
-    admin_url = _url.set(drivername="postgresql", database="postgres").render_as_string(hide_password=False)
-    try:
-        with psycopg.connect(admin_url, autocommit=True, connect_timeout=5) as conn:
-            exists = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (_url.database,)).fetchone()
-            if not exists:
-                conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(_url.database)))
-    except psycopg.OperationalError as exc:
-        raise RuntimeError(
-            "Không kết nối được Postgres local. Hãy chạy `npx supabase start` ở gốc repo trước khi chạy test."
-        ) from exc
-
-
-_ensure_test_database()
+from app.config import Settings
+from tests.helpers import TEST_SCHEMA, qualified
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or Settings().database_url
+if not TEST_DATABASE_URL:
+    raise RuntimeError("Chưa có DATABASE_URL (hoặc TEST_DATABASE_URL) để chạy test — điền connection string Supabase vào .env.")
 
 # Phải đặt biến môi trường TRƯỚC khi import app (engine + settings được tạo lúc import).
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
@@ -47,8 +27,15 @@ if os.environ.get("RUN_LLM_TESTS") != "1":
     # Mặc định không bao giờ gọi LLM thật; RUN_LLM_TESTS=1 thì dùng key thật trong .env.
     os.environ["OPENAI_API_KEY"] = "test-openai-key"
 
+from app import db  # noqa: E402
+
+with db.engine.begin() as _conn:
+    _conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TEST_SCHEMA}"'))
+# Thay engine của app bằng engine trỏ vào schema test, trước khi app.main và các file test import `engine`.
+db.engine = db.engine.execution_options(schema_translate_map={None: TEST_SCHEMA})
+assert db.current_schema() == TEST_SCHEMA
+
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import text  # noqa: E402
 
 from app.db import engine  # noqa: E402
 from app.main import app  # noqa: E402
@@ -65,8 +52,10 @@ def client():
 @pytest.fixture(autouse=True)
 def clean_tables(client):
     yield
+    # Chặn cứng: không bao giờ TRUNCATE nếu engine không trỏ vào schema test.
+    assert db.current_schema() == TEST_SCHEMA != "public"
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE note_sessions, session_groups"))
+        conn.execute(text(f"TRUNCATE {qualified('note_sessions')}, {qualified('session_groups')}"))
     app.dependency_overrides.clear()
 
 

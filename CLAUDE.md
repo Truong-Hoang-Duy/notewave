@@ -21,24 +21,25 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
   `@soniox/client` (SDK chính thức — ghi âm micro + WebSocket real-time), `lucide-react` (icon).
   Điều hướng dùng hash router tự viết (`#/live`, `#/upload`, `#/history/<id>`), không dùng react-router.
 - **Backend:** Python, FastAPI (web server) + PydanticAI (agent tóm tắt bằng LLM). Thư mục `/server`.
-- **Database:** **Supabase Postgres cho cả 2 môi trường** (quyết định 2026-09-15, thay SQLite local +
-  Neon production), truy cập qua SQLModel/SQLAlchemy. Hai môi trường chỉ khác `DATABASE_URL`:
-  - Local: Supabase local stack chạy bằng Supabase CLI + Docker (`npx supabase start`, cấu hình ở
-    `supabase/config.toml`, Postgres ở cổng 54322). Supabase CLI là devDependency npm ở `package.json` gốc.
-  - **Dev hằng ngày chỉ cần bật Docker Desktop rồi `npm run dev`** (hoặc `dev.bat`, Ctrl+Shift+B trong VS Code):
-    `run-dev.js` tự cài deps còn thiếu, tạo `.env` nếu chưa có, chờ Docker, bật Supabase local nếu chưa chạy,
-    rồi chạy backend + frontend. Ctrl+C không tắt Supabase (tắt hẳn: `npm run db:stop`). Khi thêm bước
-    setup mới cho môi trường dev, đưa vào `run-dev.js` thay vì bắt người dùng chạy tay.
-  - Production: Supabase project hosted, kết nối qua **Transaction pooler** (cổng 6543).
+- **Database:** **Supabase Postgres (hosted), local và production dùng CHUNG 1 project, cùng 1 `DATABASE_URL`**
+  (quyết định 2026-09-15, thay Supabase local qua Docker/CLI — đã gỡ `supabase/`, devDependency `supabase`,
+  script `db:*`). Truy cập qua SQLModel/SQLAlchemy.
+  - Local: dán connection string Transaction pooler của project production vào `.env`. **Không có Docker,
+    không có Supabase CLI**; đừng đề xuất dựng lại Postgres local trừ khi tôi yêu cầu. Dữ liệu local = dữ liệu
+    thật → không chạy thao tác phá huỷ trên dữ liệu thật khi dev. Nếu sau này tách project dev riêng thì chỉ đổi `.env`.
+  - **Dev hằng ngày: `npm run dev`** (hoặc `dev.bat`, Ctrl+Shift+B trong VS Code): `run-dev.js` tự cài deps còn
+    thiếu, tạo `.env` nếu chưa có, kiểm tra `DATABASE_URL` (trống / không phải Postgres / còn trỏ
+    `127.0.0.1:54322` → báo lỗi), chạy backend, **chờ `/api/health` phản hồi rồi mới bật frontend** (backend khởi
+    động ~7 giây vì `init_db` đi qua mạng tới Supabase; VS Code task "FE + BE" cũng chạy tuần tự). Khi thêm bước setup mới cho môi trường dev,
+    đưa vào `run-dev.js` thay vì bắt người dùng chạy tay.
+  - Kết nối luôn qua **Transaction pooler** (cổng 6543, `?sslmode=require`) cho cả local lẫn Render.
   - Chỉ hỗ trợ Postgres: `app/db.py` từ chối URL không phải Postgres, không còn nhánh code SQLite.
     Driver `psycopg[binary]` (v3); tự đổi `postgres://`/`postgresql://` → `postgresql+psycopg://`;
     `prepare_threshold=None` để chạy được qua pooler.
   - Kiểu cột dùng tính năng Postgres: `JSONB` cho `segments`/`summary`/`merge_sources`,
     `timestamptz` cho mọi cột thời gian (`models/common.py::tz_column`).
-  - Stack Supabase local bật đầy đủ (Auth, Storage, Realtime, Studio...) để sẵn cho sau này, nhưng
-    **hiện chỉ dùng phần Postgres**; chưa tích hợp Supabase Auth/Storage/SDK vào code.
-  - Bảng tạo bằng `SQLModel.metadata.create_all` lúc khởi động (không dùng migrations/seed của Supabase CLI,
-    `[db.seed]` đã tắt).
+  - Chỉ dùng phần Postgres của Supabase; chưa tích hợp Supabase Auth/Storage/SDK vào code.
+  - Bảng tạo bằng `SQLModel.metadata.create_all` lúc khởi động (không dùng migrations của Supabase CLI).
 - **Speech-to-Text:** Soniox API.
   - Ghi âm trực tiếp → **Real-time WebSocket API** (`wss://api.soniox.com/transcribe-websocket`),
     kết nối thẳng từ trình duyệt bằng **Temporary API Key** lấy từ backend.
@@ -77,7 +78,7 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 | `/api/sessions/assign-group` | POST | Gán/gỡ nhiều phiên vào nhóm: `{"session_ids": [...], "group_id": "<id>" \| null}` |
 | `/api/groups` | GET/POST | Liệt kê nhóm (kèm `session_count`, không tính phiên archived) / tạo nhóm `{"name"}` (tên không trùng, không phân biệt hoa thường) |
 | `/api/groups/{id}` | PATCH/DELETE | Đổi tên nhóm / xoá nhóm (phiên trong nhóm chuyển về "chưa phân nhóm", không bị xoá) |
-| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend |
+| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`; luôn HTTP 200 |
 
 Ghi chú:
 - `GET /api/sessions` hỗ trợ `?q=` (tìm theo tiêu đề/nội dung), `?source=live|upload`,
@@ -106,8 +107,12 @@ Ghi chú:
   cột — đổi kiểu/xoá cột phải migrate tay (SQL Editor của Supabase). Khi thêm cột mới vào model, đặt
   nullable hoặc có default.
 - **Test:** `server/tests` (pytest, dev dependency trong `requirements-dev.txt` / `[dependency-groups]`)
-  chạy trên Postgres của Supabase local, database riêng `notewave_test` (tự tạo; TRUNCATE sau mỗi test;
-  đổi bằng `TEST_DATABASE_URL`, tên DB bắt buộc chứa "test"). Soniox giả lập bằng `httpx.MockTransport`
+  chạy trên **cùng DB Supabase với production** (`TEST_DATABASE_URL` nếu có, không thì `DATABASE_URL` trong `.env`)
+  nhưng **chỉ trong schema riêng `notewave_test`**: conftest thay `db.engine` bằng engine có
+  `schema_translate_map={None: "notewave_test"}` (tên schema ghi rõ trong mọi câu lệnh — không dùng `search_path`
+  vì Transaction pooler không giữ). TRUNCATE sau mỗi test chỉ trên schema test (có assert chặn). SQL thô trong app
+  dùng `db._qualified()`, trong test dùng `tests.helpers.qualified()` — **tuyệt đối không viết SQL thô không kèm
+  schema trong test** (sẽ đụng `public` = dữ liệu thật). Soniox giả lập bằng `httpx.MockTransport`
   (`tests/soniox_fake.py`), LLM giả lập bằng monkeypatch — test không gọi API thật. Thêm endpoint mới thì
   thêm test tương ứng.
 
@@ -117,7 +122,8 @@ Backend (`/.env` ở gốc repo hoặc `server/.env`; trên Render khai báo tro
 ```
 SONIOX_API_KEY=
 SONIOX_ASYNC_MODEL=      # mặc định stt-async-v5
-DATABASE_URL=            # BẮT BUỘC, luôn là Postgres của Supabase (xem cách lấy bên dưới)
+DATABASE_URL=            # BẮT BUỘC, connection string Transaction pooler của Supabase — local dùng chung với production
+TEST_DATABASE_URL=       # tuỳ chọn, chỉ cho pytest; trống = DATABASE_URL (test chỉ dùng schema notewave_test)
 ALLOWED_ORIGINS=         # comma-separated, danh sách domain frontend được phép gọi API
 SUMMARY_MODEL=           # provider:model, mặc định openai:gpt-5.6-luna
 SUMMARY_REASONING_EFFORT= # tuỳ chọn, chỉ model OpenAI: none|low|medium|high; trống = mặc định của model
@@ -132,14 +138,12 @@ VITE_API_BASE_URL=       # để trống khi dev (Vite proxy /api -> localhost:8
 VITE_SONIOX_RT_MODEL=    # mặc định stt-rt-v5
 VITE_MAX_UPLOAD_MB=      # mặc định 100
 ```
-Cách lấy `DATABASE_URL`:
-- **Local:** chạy `npx supabase start` (Docker phải đang chạy), dùng dòng "DB URL" (xem lại bằng
-  `npx supabase status`): `postgresql://postgres:postgres@127.0.0.1:54322/postgres`.
-- **Production (Render):** Supabase Dashboard → nút **Connect** (hoặc Project Settings → Database) →
-  **Transaction pooler** (host `aws-0-<region>.pooler.supabase.com`, cổng 6543), thêm `?sslmode=require`:
+Cách lấy `DATABASE_URL` (local và Render dùng cùng giá trị):
+- Supabase Dashboard → nút **Connect** (hoặc Project Settings → Database → Connection string) →
+  **Transaction pooler** (host `aws-0-<region>.pooler.supabase.com`, cổng 6543), thay mật khẩu, thêm `?sslmode=require`:
   `postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require`.
-  Không dùng Direct connection (`db.<ref>.supabase.co:5432`) cho Render — chỉ có IPv6, Render không hỗ trợ.
-- **Test:** `TEST_DATABASE_URL` (tuỳ chọn), mặc định `postgresql://postgres:postgres@127.0.0.1:54322/notewave_test`.
+  Local dán vào `.env` (không commit); Render khai báo trong Environment.
+  Không dùng Direct connection (`db.<ref>.supabase.co:5432`) — chỉ có IPv6, Render không hỗ trợ.
 
 Lưu ý: pydantic-settings không tự đưa giá trị file `.env` vào `os.environ`, nên
 `config.export_llm_provider_keys()` chép các API key LLM sang để PydanticAI đọc được.

@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.config import export_llm_provider_keys, get_settings
-from app.db import describe_database, init_db
+from app.db import check_database, describe_database, init_db
 from app.routers import groups, sessions, temporary_key, upload, webhooks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -45,15 +45,22 @@ app.include_router(webhooks.router)
 
 
 class HealthResponse(BaseModel):
-    status: str
+    status: str  # "ok" | "degraded" (backend chạy nhưng không kết nối được DB)
+    database: str  # "ok" | "error"
+    database_error: str | None = None  # tên loại lỗi, không kèm chi tiết connection string
     soniox_configured: bool
     webhook_enabled: bool
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
 def health() -> HealthResponse:
+    # Luôn trả 200 (kể cả khi DB lỗi): Render dùng endpoint này làm healthCheckPath, restart backend
+    # không giúp gì khi Supabase tạm dừng project — xem field `database` để biết trạng thái DB.
+    db_error = check_database()
     return HealthResponse(
-        status="ok",
+        status="ok" if db_error is None else "degraded",
+        database="ok" if db_error is None else "error",
+        database_error=db_error,
         soniox_configured=bool(settings.soniox_api_key),
         webhook_enabled=settings.webhook_url is not None,
     )

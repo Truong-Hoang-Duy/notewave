@@ -25,12 +25,12 @@ Supabase → GitHub → Render → Vercel → quay lại Render cập nhật COR
 
 ### Chuẩn bị trước
 
-- [ ] Tài khoản: [GitHub](https://github.com), [Supabase](https://supabase.com), [Render](https://render.com), [Vercel](https://vercel.com) — nên đăng nhập Supabase/Render/Vercel **bằng GitHub** cho tiện kết nối repo.
-- [ ] `SONIOX_API_KEY` — https://console.soniox.com → API Keys.
-- [ ] `OPENAI_API_KEY` — https://platform.openai.com/api-keys (tài khoản cần có credit).
-- [ ] Máy local chạy được app (`npm run dev`) và test backend xanh:
+- [x] Tài khoản: [GitHub](https://github.com), [Supabase](https://supabase.com), [Render](https://render.com), [Vercel](https://vercel.com) — nên đăng nhập Supabase/Render/Vercel **bằng GitHub** cho tiện kết nối repo.
+- [x] `SONIOX_API_KEY` — https://console.soniox.com → API Keys.
+- [x] `OPENAI_API_KEY` — https://platform.openai.com/api-keys (tài khoản cần có credit).
+- [x] Máy local chạy được app (`npm run dev`) và test backend xanh:
   ```bash
-  npm run test:server        # cần Docker + Supabase local đang chạy
+  npm run test:server        # chạy trên DB Supabase trong .env, chỉ dùng schema riêng notewave_test
   npm run build              # build thử frontend
   ```
 
@@ -61,7 +61,8 @@ Chuẩn bị sẵn một file ghi chú (KHÔNG commit) để lưu các giá tr�
      ```
      postgresql://postgres.abcdefghijklmnop:MatKhau123@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require
      ```
-   - Đây là giá trị `DATABASE_URL` cho Render.
+   - Đây là giá trị `DATABASE_URL` cho Render **và cho `.env` ở máy local** (local dùng chung project Supabase
+     với production — xem cảnh báo rủi ro ở README mục "Chạy local").
 
 > ⚠️ **Không dùng "Direct connection"** (`db.<ref>.supabase.co:5432`): kết nối trực tiếp chỉ có IPv6, Render không
 > hỗ trợ IPv6 → backend sẽ không kết nối được. Luôn dùng **Transaction pooler**.
@@ -86,8 +87,8 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
    git add .
    git status
    ```
-   Danh sách **không được có**: `.env`, `server/local.db`, `server/.venv/`, `node_modules/`, `supabase/.temp/`.
-   **Phải có**: `client/src/lib/api.js` (và các file trong `client/src/lib/`), `render.yaml`, `supabase/config.toml`.
+   Danh sách **không được có**: `.env`, `server/local.db`, `server/.venv/`, `node_modules/`.
+   **Phải có**: `client/src/lib/api.js` (và các file trong `client/src/lib/`), `render.yaml`.
    Nếu thấy `.env` → dừng lại, kiểm tra `.gitignore` trước khi commit.
 2. Commit:
    ```bash
@@ -136,8 +137,9 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
      (không có `/` cuối) → **Save, rebuild, and deploy**.
 8. Kiểm tra: mở `https://<URL-render>/api/health` → phải thấy
    ```json
-   {"status":"ok","soniox_configured":true,"webhook_enabled":true}
+   {"status":"ok","database":"ok","database_error":null,"soniox_configured":true,"webhook_enabled":true}
    ```
+   `"status":"degraded"` + `"database":"error"` = backend chạy nhưng không kết nối được Supabase (xem mục 8).
    Tài liệu API: `https://<URL-render>/docs`.
 9. Kiểm tra trên Supabase: **Table Editor** có 2 bảng `note_sessions`, `session_groups`, và không có cảnh báo
    "RLS disabled" trên bảng nào.
@@ -185,17 +187,17 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
 
 Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không cùng Wi-Fi), đi lần lượt:
 
-- [ ] Trang tải được; nếu backend đang ngủ sẽ thấy banner vàng "Máy chủ đang khởi động…" rồi tự hết (≤ 1 phút).
-- [ ] Tab **Lịch sử**: hiện trạng thái trống, không báo lỗi → frontend gọi được backend, CORS đúng.
-- [ ] **Ghi âm trực tiếp**: bấm ghi → trình duyệt hỏi quyền micro → nói vài câu tiếng Việt → chữ hiện real-time → **Dừng** → "Đã lưu vào lịch sử".
-- [ ] Mở phiên vừa ghi: **Tóm tắt cuộc họp** ra kết quả; **Xuất file** .txt và .docx mở được, đúng tiếng Việt.
-- [ ] **Chỉnh sửa transcript**: xoá 1 đoạn → Lưu → tải lại trang vẫn giữ thay đổi.
-- [ ] **Tải file lên**: chọn file mp3/m4a ngắn (1–2 phút) → "Đang chuyển…" → hiện transcript.
+- [x] Trang tải được; nếu backend đang ngủ sẽ thấy banner vàng "Máy chủ đang khởi động…" rồi tự hết (≤ 1 phút).
+- [x] Tab **Lịch sử**: hiện trạng thái trống, không báo lỗi → frontend gọi được backend, CORS đúng.
+- [x] **Ghi âm trực tiếp**: bấm ghi → trình duyệt hỏi quyền micro → nói vài câu tiếng Việt → chữ hiện real-time → **Dừng** → "Đã lưu vào lịch sử".
+- [x] Mở phiên vừa ghi: **Tóm tắt cuộc họp** ra kết quả; **Xuất file** .txt và .docx mở được, đúng tiếng Việt.
+- [x] **Chỉnh sửa transcript**: xoá 1 đoạn → Lưu → tải lại trang vẫn giữ thay đổi.
+- [x] **Tải file lên**: chọn file mp3/m4a ngắn (1–2 phút) → "Đang chuyển…" → hiện transcript.
       Render Logs có dòng `POST /api/webhooks/soniox HTTP/1.1" 204` → webhook hoạt động
       (nếu không có, app vẫn chạy nhờ polling — xem mục 8).
-- [ ] **Nhóm & gộp**: tạo nhóm, gán 2 phiên, gộp 2 phiên → phiên gộp có đường phân cách giữa các phần.
-- [ ] Supabase → **Table Editor → note_sessions** thấy dữ liệu vừa tạo.
-- [ ] Supabase → **Advisors → Security Advisor**: không có cảnh báo "RLS disabled in public".
+- [x] **Nhóm & gộp**: tạo nhóm, gán 2 phiên, gộp 2 phiên → phiên gộp có đường phân cách giữa các phần.
+- [x] Supabase → **Table Editor → note_sessions** thấy dữ liệu vừa tạo.
+- [x] Supabase → **Advisors → Security Advisor**: không có cảnh báo "RLS disabled in public".
 
 ---
 
@@ -203,6 +205,8 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 
 - **Sửa code**: commit rồi `git push` lên `main` → Render và Vercel **tự build & deploy** lại.
   Chạy `npm run test:server` và `npm run build` ở local trước khi push.
+- **Local dùng chung DB với production**: chạy backend local có model thêm cột sẽ `ALTER TABLE` ngay trên production
+  — deploy bản code đó lên Render sớm để khớp schema. Không thử xoá dữ liệu thật khi dev.
 - **Thêm/sửa biến môi trường**: sửa trên dashboard (Render: Save, rebuild, and deploy; Vercel: Redeploy),
   đồng thời cập nhật `.env.example` và `render.yaml` nếu là biến mới.
 - **Thêm cột vào model**: backend tự `ALTER TABLE ADD COLUMN` khi khởi động. Đổi kiểu/xoá cột phải chạy SQL tay
@@ -220,6 +224,8 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | Log: `password authentication failed` | Sai mật khẩu, ký tự đặc biệt chưa URL-encode, hoặc user không phải `postgres.<ref>` | Lấy lại chuỗi Transaction pooler; đổi mật khẩu DB ở Project Settings → Database nếu cần |
 | Log: `Network is unreachable` / timeout tới `db.<ref>.supabase.co` | Dùng Direct connection (IPv6) | Đổi sang **Transaction pooler** (`...pooler.supabase.com:6543`) |
 | Log: `prepared statement ... already exists` | Kết nối pooler với prepared statement | Code đã tắt (`prepare_threshold=None`); kiểm tra đang deploy đúng bản mới nhất |
+| `/api/health` trả `"database":"error"` | Sai `DATABASE_URL`, project Supabase bị tạm dừng, hoặc mạng chặn cổng 6543 | Xem Render Logs dòng `Health check: không kết nối được database`; đối chiếu các dòng bên dưới |
+| Local: `connection timeout expired` tới `...pooler.supabase.com` (Render vẫn chạy bình thường) | Mạng máy local (công ty/firewall/antivirus) chặn cổng database đi ra (6543/5432) | Kiểm tra `Test-NetConnection aws-0-<region>.pooler.supabase.com -Port 6543`; dùng mạng khác (4G/WiFi cá nhân), route riêng host pooler qua mạng đó, hoặc VPN |
 | Backend đang chạy bỗng lỗi kết nối DB sau nhiều ngày | Supabase free **tạm dừng project** sau ~1 tuần không hoạt động | Supabase Dashboard → **Restore project**, chờ vài phút |
 | Trình duyệt Console: `blocked by CORS policy` | `ALLOWED_ORIGINS` không khớp domain đang mở (thừa `/`, thiếu `https://`, link preview) | Sửa `ALLOWED_ORIGINS` (mục 5) |
 | Frontend báo "Không kết nối được tới máy chủ", Network tab thấy request tới `notewave.vercel.app/api/...` | Thiếu/sai `VITE_API_BASE_URL` | Sửa biến trên Vercel rồi **Redeploy** |
@@ -244,9 +250,9 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 
 ## 10. Checklist bảo mật trước khi chia sẻ link
 
-- [ ] `.env` **không** có trên GitHub (kiểm tra trang repo). Nếu lỡ push: xoá file, **đổi ngay** tất cả key/mật khẩu trong đó.
-- [ ] Mọi key chỉ nằm trong Environment của Render/Vercel. Trên Vercel chỉ có biến `VITE_*` (không có key bí mật nào).
-- [ ] `ALLOWED_ORIGINS` là domain cụ thể, không phải `*`.
-- [ ] Đặt usage limit cho Soniox và OpenAI.
-- [ ] ⚠️ **App chưa có đăng nhập**: ai biết URL frontend/backend đều xem, sửa, xoá được toàn bộ phiên ghi chú và dùng
+- [x] `.env` **không** có trên GitHub (kiểm tra trang repo). Nếu lỡ push: xoá file, **đổi ngay** tất cả key/mật khẩu trong đó.
+- [x] Mọi key chỉ nằm trong Environment của Render/Vercel. Trên Vercel chỉ có biến `VITE_*` (không có key bí mật nào).
+- [x] `ALLOWED_ORIGINS` là domain cụ thể, không phải `*`.
+- [x] Đặt usage limit cho Soniox và OpenAI.
+- [x] ⚠️ **App chưa có đăng nhập**: ai biết URL frontend/backend đều xem, sửa, xoá được toàn bộ phiên ghi chú và dùng
       hạn mức Soniox/OpenAI của bạn. Chỉ chia sẻ link cho người tin cậy cho tới khi thêm xác thực người dùng.

@@ -106,3 +106,15 @@ def test_summarize_llm_failure_returns_502(client, make_session, monkeypatch):
 def test_health(client):
     body = client.get("/api/health").json()
     assert body["status"] == "ok" and body["soniox_configured"] is True and body["webhook_enabled"] is True
+    assert body["database"] == "ok" and body["database_error"] is None
+
+
+def test_health_reports_database_error(client, monkeypatch):
+    import app.main as main
+
+    monkeypatch.setattr(main, "check_database", lambda: "OperationalError")
+    res = client.get("/api/health")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "degraded" and body["database"] == "error"
+    assert body["database_error"] == "OperationalError"

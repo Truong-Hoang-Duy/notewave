@@ -273,3 +273,61 @@
 - Việc cần làm tiếp theo: khi deploy, Render dùng `SUMMARY_MODEL=openai:gpt-5.6-luna` từ `render.yaml`; đảm bảo
   tài khoản OpenAI có quyền dùng model này.
 - Vấn đề đã biết: số liệu thời gian/giá đo trên 1 transcript ngắn, transcript 1–2 giờ sẽ chậm hơn (vài chục giây).
+
+## [2026-09-15] — DoD DEPLOY.md đã pass + local dùng chung DB Supabase thật với production (bỏ Docker/Supabase CLI)
+- Đã làm:
+  - **DEPLOY.md:** người dùng xác nhận đã chạy thật và thành công **cả 18 mục checklist** → đánh `[x]` toàn bộ:
+    Chuẩn bị trước (4 mục: tài khoản GitHub/Supabase/Render/Vercel, `SONIOX_API_KEY`, `OPENAI_API_KEY`, local chạy
+    được + test xanh + build), mục 6 Kiểm thử sau deploy (9 mục: trang tải/banner khởi động, Lịch sử/CORS, ghi âm
+    trực tiếp, tóm tắt + xuất .txt/.docx, sửa transcript, tải file + webhook, nhóm & gộp, Table Editor có dữ liệu,
+    Security Advisor không cảnh báo RLS), mục 10 Checklist bảo mật (5 mục). Cập nhật thêm: response mẫu
+    `/api/health` có `database`, dòng xử lý sự cố `"database":"error"`, lưu ý local dùng chung DB ở mục 1 và 7,
+    bỏ `supabase/config.toml`/`supabase/.temp/` khỏi danh sách kiểm tra file commit.
+  - **Quyết định (người dùng chọn):** 1 project Supabase chung, local dùng đúng connection string production
+    (Transaction pooler); gỡ hẳn Supabase CLI + Docker; không đánh dấu phiên tạo từ local; test chạy trên project
+    dùng chung với production.
+  - Gỡ Supabase local: `npx supabase stop` (volume Docker vẫn giữ trên máy), xoá thư mục `supabase/`, devDependency
+    `supabase`, script `db:start/stop/status`, dòng `supabase/*` trong `.gitignore`.
+  - `run-dev.js`: bỏ bước chờ Docker + `supabase start`, bỏ `npm install` ở gốc (không còn dependency); thêm bước kiểm
+    tra `DATABASE_URL` (thứ tự ưu tiên giống pydantic-settings: biến môi trường → `server/.env` → `.env`), báo lỗi khi
+    trống / không phải Postgres / còn `127.0.0.1:54322`, in host Supabase kèm cảnh báo dùng chung production.
+    `.vscode/tasks.json`, `dev.bat`, `dev.ps1`: đổi nhãn/dòng giới thiệu.
+  - `db.py`: xác nhận không còn nhánh SQLite/localhost (chỉ đọc `DATABASE_URL`); đổi `DATABASE_URL_HINT`; thêm
+    `check_database()` (`SELECT 1`), `current_schema()`, `_qualified()` — SQL thô (RLS, ADD COLUMN) tôn trọng schema
+    của engine.
+  - `/api/health`: thêm `database` (`ok`/`error`), `database_error` (tên loại lỗi, không lộ connection string),
+    `status` = `degraded` khi DB lỗi; luôn HTTP 200 (Render healthCheckPath — restart không giúp khi Supabase tạm dừng).
+  - **Test an toàn khi dùng chung DB production:** conftest lấy `TEST_DATABASE_URL` hoặc `DATABASE_URL` trong `.env`,
+    tạo schema `notewave_test`, thay `db.engine` bằng engine `schema_translate_map={None: "notewave_test"}`; TRUNCATE
+    chỉ trên schema test (có assert chặn); `test_db.py` sửa mọi SQL thô sang tên bảng kèm schema
+    (`tests.helpers.qualified`). Thêm test `test_health_reports_database_error`.
+  - `.env.example` (`DATABASE_URL` để trống + hướng dẫn lấy từ Dashboard + cảnh báo), `README.md` mục "Chạy local"
+    viết lại (lấy connection string, cảnh báo rủi ro dùng chung + cách giảm rủi ro, khuyến nghị tách project dev),
+    `CLAUDE.md` + `GEMINI.md` mục 2, 4, 5.
+- File/module đã thay đổi: `DEPLOY.md`, `README.md`, `.env.example`, `.gitignore`, `package.json`, `package-lock.json`,
+  `run-dev.js`, `dev.bat`, `dev.ps1`, `.vscode/tasks.json`, `server/app/db.py`, `server/app/main.py`,
+  `server/tests/conftest.py`, `server/tests/helpers.py`, `server/tests/test_db.py`, `server/tests/test_sessions.py`,
+  `supabase/` (xoá), `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`
+- Đã kiểm thử:
+  - `pytest` (trước khi tắt Supabase local): 40 passed + 1 skipped; chèn 1 dòng mẫu vào `public.session_groups`, chạy
+    toàn bộ test → dòng mẫu vẫn còn (test không đụng schema `public`).
+  - `node run-dev.js --prepare`: báo lỗi đúng khi `DATABASE_URL` trống / trỏ `127.0.0.1:54322`; chấp nhận URL pooler.
+  - **Kết nối Supabase thật từ local: OK.** Lần đầu lỗi `ConnectionTimeout` — mạng dây (Ethernet) chặn mọi cổng
+    database đi ra (5432/6543/3306, kể cả tới portquiz.net; 443 vẫn mở), không phải lỗi code. Người dùng route host
+    `aws-0-ap-southeast-1.pooler.supabase.com` qua WiFi cá nhân (script split-tunnel ngoài repo) → psycopg kết nối
+    được (PostgreSQL 17.6); `uvicorn` khởi động OK và `GET /api/health` trả
+    `{"status":"ok","database":"ok","database_error":null,"soniox_configured":true,"webhook_enabled":false}`.
+  - **Sửa lỗi `[vite] http proxy error ... ECONNREFUSED` khi mở app:** backend giờ khởi động ~7 giây (import 2,9s +
+    `init_db` 4,4s qua mạng tới Supabase, trước là ~1s với DB local) nhưng backend và frontend được bật song song →
+    Vite mở trình duyệt trước, request `/api/*` đầu tiên bị từ chối. `run-dev.js` chờ `GET /api/health` OK (tối đa
+    90 giây, cảnh báo nếu `database: error`) rồi mới bật frontend; `.vscode/tasks.json` "FE + BE" đổi
+    `dependsOrder` sang `sequence` (Frontend chờ endsPattern "Application startup complete" của Backend).
+- Đang dang dở / chưa xong: chưa chạy `pytest` trên Supabase thật (sẽ tạo schema `notewave_test` trong project production).
+- Việc cần làm tiếp theo: chạy `pytest` trên Supabase thật; cân nhắc tạo project Supabase riêng cho dev.
+- Vấn đề đã biết:
+  - Local ghi/xoá thẳng dữ liệu production; backend local khởi động có thể `ALTER TABLE ADD COLUMN` trên production
+    trước khi code được deploy.
+  - Test trên DB production chậm hơn (độ trễ mạng tới Singapore) và để lại schema `notewave_test` (rỗng sau khi chạy).
+  - Dữ liệu cũ trong Supabase local (volume Docker) không còn được dùng; xoá bằng Docker Desktop nếu muốn giải phóng dung lượng.
+  - Trên mạng dây ở máy dev, cổng 6543 bị chặn: local chỉ kết nối được DB khi IP pooler đi qua WiFi. IP pooler (AWS)
+    có thể đổi → nếu lại gặp `connection timeout expired`, chạy lại script split-tunnel.

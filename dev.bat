@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 echo ========================================================
-echo   NoteWave dev: Supabase local + Backend FastAPI + Frontend Vite
-echo   (chi can bat Docker Desktop truoc)
+echo   NoteWave dev: Backend FastAPI + Frontend Vite
+echo   (DB: Supabase that, dung chung voi production)
 echo ========================================================
 node run-dev.js

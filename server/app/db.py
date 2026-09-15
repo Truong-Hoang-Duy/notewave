@@ -10,9 +10,9 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 DATABASE_URL_HINT = (
-    "Local: chạy `npx supabase start` rồi dán giá trị DB URL "
-    "(postgresql://postgres:postgres@127.0.0.1:54322/postgres) vào file .env. "
-    "Production: lấy connection string (Transaction pooler) ở Supabase Dashboard."
+    "Local và production dùng cùng connection string của Supabase: Dashboard > nút Connect "
+    "(hoặc Project Settings > Database) > Transaction pooler (cổng 6543), thêm ?sslmode=require. "
+    "Local dán vào file .env ở gốc repo; Render khai báo trong Environment."
 )
 
 
@@ -51,9 +51,33 @@ def create_db_engine(url: str) -> Engine:
 engine = create_db_engine(get_settings().database_url)
 
 
+def current_schema() -> str | None:
+    """Schema đích khi engine được gắn `schema_translate_map` (test suite dùng schema riêng `notewave_test`
+    trên cùng DB Supabase với production). None = schema mặc định `public`."""
+    return (engine.get_execution_options().get("schema_translate_map") or {}).get(None)
+
+
+def _qualified(table_name: str) -> str:
+    """Tên bảng dùng trong SQL thô (text()) — `schema_translate_map` chỉ áp dụng cho câu lệnh do SQLAlchemy sinh."""
+    schema = current_schema()
+    return f'"{schema}".{table_name}' if schema else table_name
+
+
 def describe_database() -> str:
     """Chuỗi mô tả DB đang dùng (ẩn mật khẩu) để log khi khởi động."""
     return make_url(engine.url).render_as_string(hide_password=True)
+
+
+def check_database() -> str | None:
+    """Chạy `SELECT 1` để kiểm tra kết nối DB. Trả None nếu OK, ngược lại trả tên loại lỗi
+    (không trả message gốc vì có thể lộ host/user của connection string)."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001 - health check không được làm sập request
+        logger.warning("Health check: không kết nối được database: %s", exc)
+        return type(exc).__name__
+    return None
 
 
 def init_db() -> None:
@@ -71,7 +95,7 @@ def _enable_row_level_security() -> None:
     — chủ sở hữu bảng — nên không bị ảnh hưởng. Lệnh idempotent, chạy mỗi lần khởi động."""
     with engine.begin() as conn:
         for table in SQLModel.metadata.sorted_tables:
-            conn.execute(text(f"ALTER TABLE {table.name} ENABLE ROW LEVEL SECURITY"))
+            conn.execute(text(f"ALTER TABLE {_qualified(table.name)} ENABLE ROW LEVEL SECURITY"))
 
 
 def _add_missing_columns() -> None:
@@ -79,26 +103,28 @@ def _add_missing_columns() -> None:
     nên bổ sung các cột còn thiếu bằng ALTER TABLE ADD COLUMN (luôn nullable) kèm index tương ứng.
     Chỉ hỗ trợ THÊM cột; đổi kiểu/xoá cột vẫn phải migrate tay."""
     inspector = inspect(engine)
+    schema = current_schema()
     with engine.begin() as conn:
         for table in SQLModel.metadata.sorted_tables:
-            if not inspector.has_table(table.name):
+            if not inspector.has_table(table.name, schema=schema):
                 continue
-            existing = {c["name"] for c in inspector.get_columns(table.name)}
+            existing = {c["name"] for c in inspector.get_columns(table.name, schema=schema)}
+            target = _qualified(table.name)
             added = []
             for column in table.columns:
                 if column.name in existing:
                     continue
                 col_type = column.type.compile(dialect=engine.dialect)
-                conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{column.name}" {col_type}'))
+                conn.execute(text(f'ALTER TABLE {target} ADD COLUMN "{column.name}" {col_type}'))
                 default = column.default.arg if column.default is not None and not callable(column.default.arg) else None
                 if default is not None:
-                    conn.execute(text(f'UPDATE {table.name} SET "{column.name}" = :v'), {"v": default})
+                    conn.execute(text(f'UPDATE {target} SET "{column.name}" = :v'), {"v": default})
                 added.append(column.name)
             for index in table.indexes:
                 if any(c.name in added for c in index.columns):
                     index.create(conn, checkfirst=True)
             if added:
-                logger.info("Đã thêm cột %s vào bảng %s", ", ".join(added), table.name)
+                logger.info("Đã thêm cột %s vào bảng %s", ", ".join(added), target)
 
 
 def get_db() -> Iterator[Session]:

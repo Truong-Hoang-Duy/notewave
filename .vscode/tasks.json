@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Chuẩn bị (deps + Docker + Supabase)",
+      "label": "Chuẩn bị (deps + kiểm tra DATABASE_URL)",
       "type": "shell",
       "command": "node run-dev.js --prepare",
       "options": {
@@ -83,18 +83,21 @@
       }
     },
     {
+      // Tuần tự: Frontend chỉ bật sau khi Backend in "Application startup complete" (endsPattern).
+      // Backend khởi động ~7 giây (init_db qua mạng tới Supabase); chạy song song thì Vite mở trình duyệt
+      // trước và proxy /api báo ECONNREFUSED.
       "label": "FE + BE",
       "dependsOn": [
         "Backend (FastAPI)",
         "Frontend (Vite)"
       ],
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "problemMatcher": []
     },
     {
       "label": "Run NoteWave (FE + BE)",
       "dependsOn": [
-        "Chuẩn bị (deps + Docker + Supabase)",
+        "Chuẩn bị (deps + kiểm tra DATABASE_URL)",
         "FE + BE"
       ],
       "dependsOrder": "sequence",
