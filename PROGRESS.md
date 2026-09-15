@@ -373,3 +373,175 @@
   - Khi ấn `Ctrl+Shift+B` hoặc Run Task, VS Code chỉ mở đúng 2 terminal chuyên dụng (Backend và Frontend), không còn terminal thứ 3 thừa phải ấn phím để đóng.
 - File/module đã thay đổi: `.vscode/tasks.json`, `PROGRESS.md`
 
+## [2026-09-15] — Tính năng mới: Quét tài liệu (Mistral OCR + rà soát từ tiếng Anh bằng AI, duyệt kiểu track changes)
+- Đã làm:
+  - **Quyết định đã hỏi và người dùng chọn (mục 8):** render Markdown bằng `react-markdown` + `remark-gfm`; đếm trang PDF
+    bằng `pypdf`; `ocr_review_agent` CHỈ trả danh sách `corrections`, backend tự ghép `corrected_text`; OCR xong mà bước
+    LLM rà soát lỗi → phiên vẫn `completed` + cảnh báo (không `failed`, không mất kết quả OCR đã trả phí).
+  - **Cách lưu nội dung OCR (tự quyết định theo hướng ít phá vỡ nhất):** tái dùng `segments` cho nội dung CHỐT — mỗi
+    segment = 1 trang Markdown (`TranscriptSegment` thêm field tuỳ chọn `page`, không có speaker/mốc thời gian). Lý do:
+    tìm kiếm (`transcript_text`), tóm tắt, export, "Chỉnh sửa nội dung" (TranscriptEditor), gộp phiên, `summary_outdated`
+    chạy ngay không cần nhánh code riêng; dữ liệu cũ không đổi (field mới bị bỏ qua khi None). Thêm 1 cột JSONB nullable
+    `note_sessions.ocr` (`models/ocr.py::OcrData`, tự `ALTER TABLE ADD COLUMN` khi khởi động) lưu: `raw_pages` (OCR gốc,
+    không bao giờ ghi đè), `reviewed_pages` (gốc + mọi đề xuất của LLM), `corrections` (id `cN`, `page`, `original`,
+    `corrected`, `context`, `status` pending/accepted/rejected/unavailable), `review_error`, `model`, `pages_processed`.
+    Chọn 1 cột JSON thay vì nhiều cột để chỉ cần 1 lần ADD COLUMN và không phải đổi schema khi mở rộng. `SessionRead.ocr`
+    không trả raw/reviewed pages (response gọn với PDF dài).
+  - **Backend:**
+    - `POST /api/ocr-extract` (`routers/ocr.py`): kiểm tra đuôi file (PDF, jpg/jpeg/png/webp/avif/gif/bmp/tif/tiff), file
+      rỗng, ≤ 50MB, PDF hỏng/có mật khẩu, ≤ 1000 trang (pypdf) TRƯỚC khi gọi Mistral; thiếu `MISTRAL_API_KEY` → 503; tạo
+      phiên `source="ocr"`, `processing`, trả 202 `{session_id, status, pages}`.
+    - **Xử lý nền** (`services/ocr_processing.py`, FastAPI `BackgroundTasks`) thay vì đồng bộ: PDF nhiều trang + LLM có
+      thể mất vài phút, vượt timeout request của Render (đúng khuyến nghị trong "Vấn đề đã biết" của luồng upload). Lỗi
+      bất kỳ trong job → `failed`; phiên bị xoá giữa chừng → bỏ qua. Job mất do restart: `GET /api/ocr-extract/{id}/status`
+      đặt `failed` nếu không có job trong process và `updated_at` cũ hơn 10 phút.
+    - `services/ocr.py`: SDK `mistralai` 2.x (`from mistralai.client import Mistral`), không cần URL public — upload file lên
+      Mistral Files API (`purpose="ocr"`, multipart, không phình như base64) → signed URL 1 giờ → `ocr.process`
+      (`document_url` cho PDF / `image_url` cho ảnh, `include_image_base64=False`) → luôn xoá file trên Mistral. Bỏ tham
+      chiếu ảnh `![img-0](...)` khỏi Markdown. httpx client riêng timeout 600s trong lifespan (`app.state.ocr_http`).
+    - `services/ocr_review_agent.py` (`ocr_review_agent`, dùng `SUMMARY_MODEL`): prompt chỉ sửa từ tiếng Anh, không đụng
+      tiếng Việt; chia tài liệu theo trang ~40k ký tự/lần, tối đa 4 lần gọi song song; lọc đề xuất (đúng trang, `original`
+      có thật dạng nguyên từ, `corrected` chỉ ký tự Latin cơ bản, chặn chữ riêng tiếng Việt / chỉ bỏ dấu, bỏ trùng); áp
+      dụng tuần tự để `reviewed_pages` nhất quán với danh sách đề xuất.
+    - `POST /api/sessions/{id}/ocr-corrections` `{"accept": [...], "reject": [...]}`: chấp nhận = thay nguyên từ trong đúng
+      trang của `segments` hiện tại (kể cả sau khi sửa tay; không còn thấy → `unavailable`); gọi lặp an toàn; nếu đã có tóm
+      tắt → `summary_outdated=true`.
+    - `source` nhận thêm `"ocr"` (Literal, bộ lọc `GET /api/sessions?source=ocr`, tiêu đề mặc định, preview bỏ ký hiệu
+      Markdown). Tóm tắt phiên OCR: prompt báo nội dung là văn bản OCR (không đổi `INSTRUCTIONS` của summary_agent).
+      `segments_to_plain_text` chèn "--- Trang N ---" khi nhiều trang. Export .txt/.docx: nguồn "Tài liệu quét (OCR)",
+      "Số trang", mục "Nội dung tài liệu"; .docx chuyển Markdown (heading, list, quote, bảng, code, đậm/nghiêng) qua
+      `services/markdown_docx.py`. `/api/health` thêm `ocr_configured`.
+  - **Frontend:**
+    - Tab thứ 3 **"Quét tài liệu"** (`#/scan`, nhãn ngắn "Quét"; nav desktop dùng nhãn ngắn từ md tới dưới lg, bottom nav
+      4 cột). `pages/ScanPage.jsx`: kéo-thả / chọn ảnh-PDF, nút **Chụp ảnh tài liệu** (`capture="environment"`, chỉ hiện trên
+      thiết bị cảm ứng), tiến trình upload + thẻ xử lý nền, nhớ phiên đang xử lý qua localStorage.
+    - Tách luồng upload dùng chung thành `components/FileIngestPage.jsx`; `UploadPage` giờ chỉ truyền config (hành vi giữ
+      nguyên). `ProcessingCard` nhận `icon`/`hint`; `useUploadStatus` nhận hàm poll (`api.ocrStatus`).
+    - Chi tiết phiên OCR: tiêu đề khối "Nội dung tài liệu", không có danh sách người nói, meta "N trang", nút "Chỉnh sửa
+      nội dung"; dòng cảnh báo "Nội dung do AI trích xuất… nên kiểm tra lại"; banner "Đã phát hiện N từ tiếng Anh có thể
+      viết sai… bấm để xem chi tiết"; cảnh báo `review_error`. `OcrDocumentView` render Markdown (style theo design system,
+      bảng cuộn ngang, không render HTML thô/ảnh) + tô sáng từ đang có đề xuất (bấm → mở đúng mục). Tách chunk lazy
+      (47 KB gzip), bundle chính chỉ tăng ~4 KB.
+    - `OcrCorrectionsDialog`: từ gốc (gạch ngang) → đề xuất, câu ngữ cảnh, Chấp nhận / Bỏ qua từng mục, "Chấp nhận tất cả",
+      mục đã xử lý gom trong "Đã xử lý (N)"; khoá chấp nhận khi đang chỉnh sửa nội dung. Không tự áp dụng khi chưa bấm.
+    - Lịch sử: bộ lọc thêm "Tài liệu quét" (nhãn ngắn trên mobile), icon `ScanText` + màu xanh dương riêng
+      (`lib/sources.js::SOURCE_META`, dùng chung với `SourceBadge`); empty state thêm nút "Quét tài liệu".
+  - **Dev/deploy:** `run-dev.js` tự cài lại dependencies khi `client/package*.json` hoặc `server/requirements*.txt` đổi
+    (dấu vân tay lưu ở `client/node_modules/.notewave-deps`, `server/.venv/.notewave-deps`). `.env.example`, `render.yaml`
+    (`MISTRAL_API_KEY` sync:false, `OCR_MODEL`), `DEPLOY.md` (chuẩn bị key, bảng biến, health, checklist kiểm thử, 4 dòng
+    xử lý sự cố, giới hạn), `README.md`, `CLAUDE.md` + `GEMINI.md` (luồng, thư viện đã duyệt, bảo mật, 3 endpoint, ghi chú
+    OCR, biến môi trường, `source` 3 giá trị).
+- File/module đã thay đổi:
+  - Backend mới: `server/app/models/ocr.py`, `server/app/routers/ocr.py`, `server/app/services/ocr.py`,
+    `server/app/services/ocr_processing.py`, `server/app/services/ocr_review_agent.py`, `server/app/services/markdown_docx.py`,
+    `server/tests/mistral_fake.py`, `server/tests/test_ocr.py`.
+  - Backend sửa: `server/app/config.py`, `server/app/dependencies.py`, `server/app/main.py`, `server/app/models/session.py`,
+    `server/app/routers/sessions.py`, `server/app/services/export.py`, `server/app/services/summary_agent.py`,
+    `server/app/services/transcript.py`, `server/tests/conftest.py`, `server/tests/test_sessions.py`,
+    `server/requirements.txt`, `server/pyproject.toml`.
+  - Frontend mới: `client/src/pages/ScanPage.jsx`, `client/src/components/FileIngestPage.jsx`,
+    `client/src/components/OcrDocumentView.jsx`, `client/src/components/OcrCorrectionsDialog.jsx`, `client/src/lib/sources.js`.
+  - Frontend sửa: `client/src/App.jsx`, `client/src/pages/UploadPage.jsx`, `client/src/pages/HistoryPage.jsx`,
+    `client/src/components/SessionDetail.jsx`, `client/src/components/TranscriptEditor.jsx`,
+    `client/src/components/ProcessingCard.jsx`, `client/src/components/ui.jsx`, `client/src/hooks/useUploadStatus.js`,
+    `client/src/lib/api.js`, `client/src/lib/format.js`, `client/package.json`, `client/package-lock.json`.
+  - Khác: `run-dev.js`, `.env.example`, `render.yaml`, `DEPLOY.md`, `README.md`, `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Đã kiểm thử:
+  - `pytest` toàn bộ trên Supabase (schema `notewave_test`): **53 passed, 2 skipped** trên tổng 55 test (2 test gọi LLM
+    thật; phiên sau đếm lại, trước đó ghi nhầm "55 passed"). `test_ocr.py` (14 test): validate (415/422/413, PDF hỏng, quá số trang), 503 khi thiếu key, luồng đầy đủ với Mistral giả lập
+    (MockTransport; kiểm tra thứ tự upload → signed URL → OCR → xoá file, body `document_url`/`image_url`) + LLM giả lập
+    (`FunctionModel`, kiểm tra lọc đề xuất sai), lưu raw/reviewed không ghi đè, lọc/tìm kiếm, accept/reject/gọi lặp/422,
+    `summary_outdated`, `unavailable` sau khi sửa tay, LLM lỗi → completed + `review_error`, OCR lỗi / không có chữ →
+    failed, job mồ côi → failed, export txt/docx, prompt tóm tắt OCR, unit test thay nguyên từ / chia phần / chặn tiếng Việt.
+  - `vite build` OK, `oxlint` không có cảnh báo mới. Bản build + API giả lập + Edge headless (1440×900): trang Quét, Lịch
+    sử (bộ lọc + icon), chi tiết phiên OCR (Markdown, tô sáng, banner, cảnh báo), hộp thoại — bấm từ tô sáng mở đúng mục,
+    chấp nhận 1 mục → nội dung đổi, banner giảm số.
+  - `node run-dev.js --prepare`: lần đầu cài lại deps (fingerprint mới), lần 2 bỏ qua.
+- Đang dang dở / chưa xong:
+  - **Chưa gọi Mistral OCR thật** (`.env` chưa có `MISTRAL_API_KEY`) — request/response dựa theo SDK `mistralai` 2.10 +
+    tài liệu Mistral, mới kiểm bằng giả lập. Chưa chạy test LLM thật của `ocr_review_agent`.
+  - Chưa thử trên điện thoại thật (nút chụp ảnh, bố cục mobile của hộp thoại).
+- Việc cần làm tiếp theo:
+  - Điền `MISTRAL_API_KEY` vào `.env` → quét thử 1 ảnh ghi chú tay + 1 PDF nhiều trang; chạy
+    `RUN_LLM_TESTS=1 pytest tests/test_ocr.py -k live` để đánh giá chất lượng prompt rà soát.
+  - Deploy: thêm `MISTRAL_API_KEY` trên Render (Blueprint đã tạo không tự thêm biến mới), đánh dấu mục checklist "Quét tài
+    liệu" trong `DEPLOY.md` sau khi kiểm thử production.
+  - Cân nhắc: chụp nhiều ảnh thành 1 phiên (hiện 1 file / phiên — tạm gộp bằng tính năng Gộp phiên); hoàn tác một đề xuất
+    đã chấp nhận.
+- Vấn đề đã biết:
+  - Task VS Code "Run NoteWave (FE + BE)" (Ctrl+Shift+B) chạy thẳng uvicorn/vite, KHÔNG qua `run-dev.js` → sau khi pull
+    code có thư viện mới (`mistralai`, `pypdf`, `react-markdown`) phải chạy `npm run dev` hoặc `node run-dev.js --prepare`
+    một lần, không thì backend lỗi import.
+  - Chạy backend local sẽ `ALTER TABLE note_sessions ADD COLUMN ocr` trên DB production (dùng chung) — deploy code lên Render
+    sớm cho khớp.
+  - Job OCR nền chạy trong process: Render restart/deploy giữa chừng → phiên `failed` sau 10 phút (người dùng tải lại).
+    Nếu sau này chạy nhiều worker/instance, cần hàng đợi thật (vd. bảng job) thay cho `_running` trong bộ nhớ.
+  - File (≤ 50MB) được giữ trong RAM khi xử lý nền — Render free 512MB, tránh nhiều người cùng quét PDF lớn.
+  - Chấp nhận đề xuất thay mọi lần xuất hiện NGUYÊN TỪ của `original` trong trang đó (theo thiết kế, agent gộp lỗi lặp lại
+    thành 1 mục); từ nằm vắt qua định dạng Markdown (vd. `**dead**line`) sẽ không được tô sáng / không khớp.
+  - LLM rà soát vẫn có thể đề xuất sai (vd. "sửa" tên riêng tiếng Anh vốn đúng) — vì vậy mọi đề xuất phải được duyệt.
+
+## [2026-09-15] — Tải lên nhiều file một lúc (Quét tài liệu gộp 1 phiên, Tải file ghi âm mỗi file 1 phiên)
+- Quyết định (đã hỏi người dùng): áp dụng cho **cả hai luồng**; **Quét tài liệu**: nhiều ảnh/PDF → **gộp thành 1 phiên**
+  theo thứ tự người dùng sắp xếp; **Tải file ghi âm**: **mỗi file 1 phiên riêng** (muốn nối thì dùng Gộp phiên có sẵn).
+  Tự quyết thêm: file OCR lỗi lẻ không làm hỏng cả lô (giữ các file khác, cảnh báo) — nhất quán với quyết định "giữ
+  kết quả OCR đã trả phí" trước đó; giới hạn 20 file/lần, Quét tổng ≤ 200MB; tải ghi âm 2 file song song.
+- Đã làm:
+  - **Backend — OCR nhiều file:**
+    - `POST /api/ocr-extract` nhận `files` (lặp lại, đúng thứ tự) và vẫn nhận `file` đơn (tương thích). Kiểm tra từng file
+      (lỗi ghi rõ tên file), số file ≤ `MAX_OCR_FILES`=20, tổng ≤ `MAX_OCR_BATCH_MB`=200, tổng trang ≤ 1000. File được chép
+      ra thư mục tạm trên đĩa (`tempfile.mkdtemp`) thay vì giữ trong RAM; validate PDF đọc từ đường dẫn; lỗi validate /
+      thiếu key thì xoá thư mục ngay. Response thêm `files`. Tiêu đề mặc định "tên-file-đầu (+N file)",
+      `original_filename` = danh sách tên (cắt 255 ký tự).
+    - Job nền (`process_ocr_session`): OCR tối đa 3 file song song (đọc file vào RAM ngay trước khi gửi), nối trang theo
+      thứ tự tải lên, đánh số liên tục; `OcrData.files` (`OcrSourceFile`: filename, first_page, page_count, error) — cũng
+      trả trong `SessionRead.ocr.files`. Một phần file lỗi → `completed` + `files[].error`; mọi file lỗi → `failed`
+      ("không xử lý được file nào"); luôn xoá thư mục tạm.
+  - **Backend — ghi âm:** `POST /api/upload-transcribe` thêm form `group_id` tuỳ chọn (kiểm tra nhóm tồn tại TRƯỚC khi
+    gửi file sang Soniox) để gán cả lô vào 1 nhóm ngay khi tạo.
+  - **Frontend:**
+    - `components/FilePicker.jsx` (mới, dùng chung): chọn / kéo thả nhiều file, chống trùng, liệt kê file bị bỏ qua kèm
+      lý do, ảnh thu nhỏ (object URL, tự thu hồi), sắp xếp thứ tự bằng kéo thả + nút mũi tên, bỏ từng file / tất cả, nút
+      "Chụp ảnh tài liệu" → "Chụp thêm trang" trên thiết bị cảm ứng.
+    - Quét tài liệu (`FileIngestPage` + `ScanPage`): nhiều file → 1 request → 1 phiên; nút "Trích xuất N file thành 1 tài
+      liệu", cảnh báo vượt 200MB; lỗi khi tải lên thì giữ danh sách để sửa ("Sửa danh sách file"). Trang chi tiết: nhãn
+      "Trang N · tên file" khi gộp nhiều file, meta "N trang · M file", cảnh báo "Không đọc được N file".
+    - Tải file lên (`UploadPage` viết lại): hàng đợi — chọn nhiều file + nhóm (tuỳ chọn, tạo nhóm tại chỗ), mỗi file 1
+      dòng: chờ → tiến trình tải lên → đang chuyển (đồng hồ, tự poll) → xong (nút "Mở") / lỗi (nút "Thử lại" nếu lỗi lúc
+      tải lên); huỷ / ẩn từng dòng, "Dọn mục đã xong", thanh tiến độ tổng. Có thể chọn thêm file khi hàng đợi đang chạy.
+      Cảnh báo khi đóng tab lúc còn file chưa gửi xong. Phiên đã tạo lưu localStorage `notewave:active-uploads` (tự chuyển
+      dữ liệu cũ `notewave:active-upload`). Tải đúng 1 file và xong → vẫn hiện transcript ngay tại trang như trước.
+    - `api.js`: `uploadWithProgress(path, fields, …)` gửi field lặp lại cho mảng; `ocrExtract(files)`,
+      `uploadAudio(file, { groupId })`.
+  - Tài liệu: `CLAUDE.md` + `GEMINI.md` (bảng endpoint `/api/upload-transcribe`, `/api/ocr-extract`; ghi chú OCR `files` /
+    thư mục tạm / lỗi từng file; quy ước frontend FilePicker / FileIngestPage / hàng đợi UploadPage), `DEPLOY.md` (checklist
+    kiểm thử quét nhiều trang + tải nhiều file ghi âm, 1 dòng xử lý sự cố), `README.md`. Sửa số liệu test ghi nhầm ở mục
+    trước ("55 passed" → 53 passed + 2 skipped).
+- File/module đã thay đổi:
+  - Backend: `server/app/models/ocr.py`, `server/app/models/session.py`, `server/app/routers/ocr.py`,
+    `server/app/routers/upload.py`, `server/app/services/ocr.py`, `server/app/services/ocr_processing.py`,
+    `server/tests/mistral_fake.py`, `server/tests/test_ocr.py`, `server/tests/test_upload_soniox.py`.
+  - Frontend: `client/src/components/FilePicker.jsx` (mới), `client/src/components/FileIngestPage.jsx`,
+    `client/src/pages/ScanPage.jsx`, `client/src/pages/UploadPage.jsx`, `client/src/components/OcrDocumentView.jsx`,
+    `client/src/components/SessionDetail.jsx`, `client/src/lib/api.js`.
+  - Khác: `CLAUDE.md`, `GEMINI.md`, `DEPLOY.md`, `README.md`, `PROGRESS.md`.
+- Đã kiểm thử:
+  - `pytest` toàn bộ trên Supabase (schema `notewave_test`): **57 passed, 2 skipped** (tổng 59; 2 test gọi LLM thật). Test
+    mới: gộp 3 file (ảnh + PDF 2 trang + ảnh) → đúng thứ tự, trang 1–4, `files` đúng, đề xuất gắn đúng trang, xoá cả 3 file
+    trên Mistral, thư mục tạm bị xoá, export có nhãn trang; 1/3 file lỗi → completed giữ 2 file; mọi file lỗi → failed;
+    validate nhiều file (quá số file, file sai định dạng nêu tên, tổng số trang, không có file); upload ghi âm với
+    `group_id` (gán nhóm; nhóm không tồn tại → 404 và không gọi Soniox). Mistral giả lập giờ cấp id riêng từng file và trả
+    nội dung / lỗi theo tên file.
+  - `vite build` OK, `oxlint` không có cảnh báo mới. Bản build + API giả lập + Edge headless (tạo file bằng
+    `DataTransfer`): Tải file lên 6 file → 1 file .txt bị bỏ qua kèm lý do, hàng đợi hiện đồng thời xong (nút Mở) / đang
+    chuyển (đồng hồ) / lỗi tải lên (Thử lại); Quét tài liệu 4 file → ảnh thu nhỏ, số thứ tự, nút mũi tên đổi thứ tự đúng.
+- Đang dang dở / chưa xong: chưa thử với Mistral / Soniox thật cho lô nhiều file; chưa thử trên điện thoại thật (chụp nhiều
+  trang liên tiếp, kéo thả sắp xếp không có trên cảm ứng — dùng nút mũi tên).
+- Việc cần làm tiếp theo: điền `MISTRAL_API_KEY` và quét thử 3–5 ảnh chụp liên tiếp trên điện thoại; tải thử 3 file ghi âm
+  thật với nhóm; sau khi deploy đánh dấu 2 mục checklist mới trong `DEPLOY.md`.
+- Vấn đề đã biết:
+  - Hàng đợi tải ghi âm nằm ở trình duyệt: file CHƯA gửi xong sẽ mất khi tải lại / đóng tab (có cảnh báo); file đã tạo
+    phiên thì vẫn được xử lý và khôi phục trong danh sách.
+  - Quét nhiều file: file tạm nằm trên đĩa tạm của Render (mất khi restart — cùng cơ chế `failed` sau 10 phút như trước).
+  - Mỗi dòng đang xử lý trong hàng đợi poll trạng thái riêng mỗi 3 giây (tối đa 20 dòng) — chấp nhận được với Render free.
+

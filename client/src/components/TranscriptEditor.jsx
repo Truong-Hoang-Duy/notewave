@@ -99,7 +99,7 @@ function EditableSegment({ segment, showSpeakerColumn, editing, onStartEdit, onC
  * Chế độ chỉnh sửa transcript: sửa text từng đoạn, xoá đoạn thừa. Mọi thay đổi nằm trong bản nháp,
  * có hoàn tác (Ctrl+Z) và chỉ ghi vào máy chủ khi bấm "Lưu thay đổi".
  */
-export default function TranscriptEditor({ initialSegments, partsById, saving, onSave, onCancel, onDirtyChange }) {
+export default function TranscriptEditor({ initialSegments, partsById, saving, onSave, onCancel, onDirtyChange, title = 'Đang chỉnh sửa transcript' }) {
   const [segments, setSegments] = useState(initialSegments)
   const [history, setHistory] = useState([]) // các bản trước đó để hoàn tác
   const [editingIndex, setEditingIndex] = useState(null)
@@ -168,7 +168,7 @@ export default function TranscriptEditor({ initialSegments, partsById, saving, o
       <div className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-10 xl:top-0 -mx-5 mb-4 border-b border-line bg-surface/95 px-5 py-3 backdrop-blur sm:-mx-7 sm:px-7">
         <div className="flex flex-wrap items-center gap-2">
           <div className="mr-auto min-w-0 text-[13px] leading-snug">
-            <p className="font-semibold text-ink">Đang chỉnh sửa transcript</p>
+            <p className="font-semibold text-ink">{title}</p>
             <p className="text-muted">
               {dirty
                 ? `${history.length} thay đổi chưa lưu${removedCount > 0 ? ` · đã xoá ${removedCount} đoạn` : ''}`

@@ -1,18 +1,20 @@
-import { FileAudio, History, Mic, ServerCog } from 'lucide-react'
+import { FileAudio, History, Mic, ScanText, ServerCog } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import SessionDetail from './components/SessionDetail'
 import { api, subscribeSlowRequests } from './lib/api'
 import HistoryPage from './pages/HistoryPage'
 import LivePage from './pages/LivePage'
+import ScanPage from './pages/ScanPage'
 import UploadPage from './pages/UploadPage'
 
 const TABS = [
   { id: 'live', label: 'Ghi âm trực tiếp', short: 'Ghi âm', icon: Mic },
   { id: 'upload', label: 'Tải file lên', short: 'Tải lên', icon: FileAudio },
+  { id: 'scan', label: 'Quét tài liệu', short: 'Quét', icon: ScanText },
   { id: 'history', label: 'Lịch sử', short: 'Lịch sử', icon: History },
 ]
 
-/** Router tối giản dựa trên hash: #/live, #/upload, #/history, #/history/<id> */
+/** Router tối giản dựa trên hash: #/live, #/upload, #/scan, #/history, #/history/<id> */
 function parseHash() {
   const [, tab, id] = window.location.hash.replace(/^#/, '').split('/')
   return { tab: TABS.some((t) => t.id === tab) ? tab : 'live', id: tab === 'history' ? id || null : null }
@@ -78,7 +80,9 @@ export default function App() {
                   }`}
                 >
                   <tab.icon className="size-4" />
-                  {tab.label}
+                  {/* 4 tab: từ md tới dưới lg dùng nhãn ngắn để không tràn header. */}
+                  <span className="lg:hidden">{tab.short}</span>
+                  <span className="hidden lg:inline">{tab.label}</span>
                   {tab.id === 'live' && recording && <span className="size-2 animate-rec-pulse rounded-full bg-rec" aria-label="đang ghi" />}
                 </a>
               )
@@ -103,13 +107,16 @@ export default function App() {
       )}
 
       <main className="mx-auto max-w-[96rem] px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
-        {/* Luôn giữ LivePage & UploadPage được mount để việc ghi âm / tải lên không bị ngắt khi chuyển tab. */}
+        {/* Luôn giữ LivePage, UploadPage & ScanPage được mount để việc ghi âm / tải lên không bị ngắt khi chuyển tab. */}
         {/* Mỗi trang tự giới hạn bề rộng phần form; transcript được dùng toàn bộ chiều ngang. */}
         <div hidden={route.tab !== 'live'}>
           <LivePage onOpenSession={openSession} onRecordingChange={setRecording} />
         </div>
         <div hidden={route.tab !== 'upload'}>
           <UploadPage onOpenHistory={() => navigate('history')} onOpenSession={openSession} />
+        </div>
+        <div hidden={route.tab !== 'scan'}>
+          <ScanPage onOpenHistory={() => navigate('history')} onOpenSession={openSession} />
         </div>
         {route.tab === 'history' &&
           (route.id ? (
@@ -131,7 +138,7 @@ export default function App() {
         className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
         aria-label="Điều hướng chính"
       >
-        <div className="grid grid-cols-3">
+        <div className="grid grid-cols-4">
           {TABS.map((tab) => {
             const active = route.tab === tab.id
             return (

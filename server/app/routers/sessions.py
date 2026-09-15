@@ -10,6 +10,7 @@ from sqlmodel import Session, col, select
 
 from app.dependencies import DbDep, SonioxDep, get_group_or_404, get_session_or_404
 from app.models.group import AssignGroupRequest, SessionGroup
+from app.models.ocr import CorrectionDecision
 from app.models.session import (
     MergeRequest,
     NoteSession,
@@ -18,11 +19,13 @@ from app.models.session import (
     SessionList,
     SessionListItem,
     SessionRead,
+    SessionSource,
     SessionUpdate,
 )
 from app.models.summary import MeetingSummary
 from app.services.export import build_docx, build_txt
 from app.services.merge import merge_sessions
+from app.services.ocr_processing import CorrectionDecisionError, decide_corrections
 from app.services.summary_agent import summarize_transcript
 
 logger = logging.getLogger(__name__)
@@ -33,7 +36,7 @@ DISPLAY_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
 
 def _default_title(source: str) -> str:
     now = datetime.now(DISPLAY_TZ)
-    prefix = "Ghi âm" if source == "live" else "File tải lên"
+    prefix = {"live": "Ghi âm", "upload": "File tải lên", "ocr": "Tài liệu quét"}.get(source, "Phiên")
     return f"{prefix} {now:%d/%m/%Y %H:%M}"
 
 
@@ -65,7 +68,7 @@ def create_session(payload: SessionCreate, db: DbDep) -> SessionRead:
 def list_sessions(
     db: DbDep,
     q: str | None = Query(default=None, max_length=200, description="Tìm theo tiêu đề hoặc nội dung"),
-    source: Literal["live", "upload"] | None = None,
+    source: SessionSource | None = None,
     group_id: str | None = Query(default=None, description='Id nhóm, hoặc "none" để lấy phiên chưa phân nhóm'),
     archived: bool = Query(default=False, description="True: chỉ lấy phiên đã lưu trữ (sau khi gộp)"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -160,6 +163,19 @@ def replace_segments(session_id: str, payload: SegmentsUpdate, db: DbDep) -> Ses
     return _save(db, session)
 
 
+@router.post("/{session_id}/ocr-corrections", response_model=SessionRead)
+def decide_ocr_corrections(session_id: str, payload: CorrectionDecision, db: DbDep) -> SessionRead:
+    """Chấp nhận / bỏ qua các đề xuất sửa từ tiếng Anh của phiên quét tài liệu (track changes)."""
+    session = get_session_or_404(db, session_id)
+    if session.status != "completed":
+        raise HTTPException(status_code=409, detail="Tài liệu chưa xử lý xong.")
+    try:
+        decide_corrections(session, payload)
+    except CorrectionDecisionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _save(db, session)
+
+
 @router.post("/{session_id}/restore", response_model=SessionRead)
 def restore_session(session_id: str, db: DbDep) -> SessionRead:
     """Khôi phục phiên đã lưu trữ (sau khi gộp) về danh sách chính."""
@@ -192,10 +208,10 @@ async def summarize_session(session_id: str, db: DbDep) -> MeetingSummary:
         raise HTTPException(status_code=409, detail="Phiên này chưa có transcript hoàn chỉnh để tóm tắt.")
     read = SessionRead.from_db(session)
     if not read.segments:
-        raise HTTPException(status_code=422, detail="Transcript trống, không có gì để tóm tắt.")
+        raise HTTPException(status_code=422, detail="Nội dung trống, không có gì để tóm tắt.")
     try:
         part_titles = {m.id: m.title for m in read.merge_sources}
-        summary = await summarize_transcript(read.title, read.segments, part_titles)
+        summary = await summarize_transcript(read.title, read.segments, part_titles, source=read.source)
     except Exception as exc:  # Lỗi provider LLM rất đa dạng (thiếu key, quota, timeout...)
         logger.exception("Tóm tắt thất bại cho session %s", session_id)
         raise HTTPException(

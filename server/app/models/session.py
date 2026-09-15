@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Literal
@@ -9,14 +10,16 @@ from sqlmodel import Field, SQLModel
 
 from app.models.common import aware, tz_column, utcnow
 from app.models.group import GroupRef, SessionGroup
+from app.models.ocr import OcrData, OcrInfo
 from app.models.summary import MeetingSummary
 
-SessionSource = Literal["live", "upload"]
+SessionSource = Literal["live", "upload", "ocr"]
 SessionStatus = Literal["processing", "completed", "failed"]
 
 
 class TranscriptSegment(BaseModel):
-    """Một đoạn transcript liên tục của cùng một người nói."""
+    """Một đoạn transcript liên tục của cùng một người nói. Với phiên OCR: 1 đoạn = 1 trang tài liệu
+    (text là Markdown, có `page`, không có `speaker`/mốc thời gian)."""
 
     speaker: str | None = None
     text: str
@@ -25,6 +28,7 @@ class TranscriptSegment(BaseModel):
     language: str | None = None
     # Id phiên gốc của đoạn này (chỉ có ở phiên được gộp) — UI dùng để vẽ đường phân cách.
     origin: str | None = None
+    page: int | None = None
 
 
 class MergeSource(BaseModel):
@@ -62,6 +66,8 @@ class NoteSession(SQLModel, table=True):
     merge_sources: list[dict[str, Any]] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     archived_at: datetime | None = Field(default=None, sa_column=tz_column(nullable=True, index=True))
     merged_into_id: str | None = Field(default=None, max_length=32)
+    # Chỉ có ở phiên source="ocr": bản OCR gốc, bản đã rà soát, đề xuất sửa từ tiếng Anh (models/ocr.py::OcrData).
+    ocr: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     created_at: datetime = Field(default_factory=utcnow, sa_column=tz_column(index=True))
     updated_at: datetime = Field(default_factory=utcnow, sa_column=tz_column())
 
@@ -69,8 +75,21 @@ class NoteSession(SQLModel, table=True):
         self.segments = [s.model_dump(exclude_none=True) for s in segments]
         self.transcript_text = "\n".join(s.text.strip() for s in segments if s.text.strip())
 
+    def ocr_data(self) -> OcrData | None:
+        return OcrData.model_validate(self.ocr) if self.ocr else None
+
     def touch(self) -> None:
         self.updated_at = utcnow()
+
+
+_MARKDOWN_NOISE = re.compile(r"[#*_`>|~]+|!\[[^\]]*\]\([^)]*\)|-{3,}")
+
+
+def _preview(s: NoteSession) -> str:
+    if s.source != "ocr":
+        return s.transcript_text[:180]
+    # Nội dung OCR là Markdown: bỏ ký hiệu định dạng để đoạn xem trước đọc được.
+    return " ".join(_MARKDOWN_NOISE.sub(" ", s.transcript_text[:600]).split())[:180]
 
 
 def _group_ref(group: SessionGroup | None) -> GroupRef | None:
@@ -129,7 +148,7 @@ class SessionListItem(BaseModel):
             source=s.source,  # type: ignore[arg-type]
             status=s.status,  # type: ignore[arg-type]
             duration_ms=s.duration_ms,
-            preview=s.transcript_text[:180],
+            preview=_preview(s),
             speaker_count=len(speakers),
             has_summary=s.summary is not None,
             original_filename=s.original_filename,
@@ -156,11 +175,13 @@ class SessionRead(BaseModel):
     merge_sources: list[MergeSource]
     archived_at: datetime | None
     merged_into_id: str | None
+    ocr: OcrInfo | None
     created_at: datetime
     updated_at: datetime
 
     @classmethod
     def from_db(cls, s: NoteSession, group: SessionGroup | None = None) -> "SessionRead":
+        ocr = s.ocr_data()
         return cls(
             id=s.id,
             title=s.title,
@@ -176,6 +197,15 @@ class SessionRead(BaseModel):
             merge_sources=[MergeSource.model_validate(m) for m in (s.merge_sources or [])],
             archived_at=aware(s.archived_at),
             merged_into_id=s.merged_into_id,
+            ocr=OcrInfo(
+                model=ocr.model,
+                pages_processed=ocr.pages_processed,
+                files=ocr.files,
+                corrections=ocr.corrections,
+                review_error=ocr.review_error,
+            )
+            if ocr
+            else None,
             created_at=aware(s.created_at),
             updated_at=aware(s.updated_at),
         )

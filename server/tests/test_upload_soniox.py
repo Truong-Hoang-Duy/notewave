@@ -66,3 +66,14 @@ def test_delete_processing_session_cleans_soniox(client, soniox):
     sid = client.post("/api/upload-transcribe", files={"file": ("a.mp3", b"\x00" * 64, "audio/mpeg")}).json()["session_id"]
     assert client.delete(f"/api/sessions/{sid}").status_code == 204
     assert "DELETE /v1/transcriptions/tr-1" in soniox.calls and "DELETE /v1/files/file-1" in soniox.calls
+
+
+def test_upload_with_group_id(client, soniox):
+    group = client.post("/api/groups", json={"name": "Tuần 38"}).json()
+    res = client.post("/api/upload-transcribe", files={"file": ("a.mp3", b"\x00" * 64, "audio/mpeg")}, data={"group_id": group["id"]})
+    assert res.status_code == 202, res.text
+    assert client.get(f"/api/sessions/{res.json()['session_id']}").json()["group"]["name"] == "Tuần 38"
+
+    calls_before = len(soniox.calls)
+    res = client.post("/api/upload-transcribe", files={"file": ("a.mp3", b"\x00" * 64, "audio/mpeg")}, data={"group_id": "nope"})
+    assert res.status_code == 404 and len(soniox.calls) == calls_before  # không gửi file khi nhóm không tồn tại

@@ -1,11 +1,13 @@
 // Khởi động môi trường dev NoteWave bằng MỘT lệnh: `npm run dev` (hoặc dev.bat / dev.ps1 / VS Code task).
 // Local dùng CHUNG database Supabase (hosted) với production — không cần Docker hay Supabase CLI:
-//   1. Lần đầu: cài dependencies còn thiếu (client, Python venv) và tạo .env từ .env.example.
+//   1. Cài dependencies còn thiếu (client, Python venv) — và cài lại khi package-lock.json / requirements*.txt
+//      thay đổi (vd sau git pull có thư viện mới) — rồi tạo .env từ .env.example nếu chưa có.
 //   2. Kiểm tra DATABASE_URL trong .env đã là connection string Supabase thật.
 //   3. Chạy backend FastAPI (cổng 8000) + frontend Vite (cổng 5173).
 // Tuỳ chọn: `node run-dev.js --prepare` chỉ làm bước 1–2 rồi thoát (dùng cho VS Code task).
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,28 +32,52 @@ function exitWith(message) {
   process.exit(1)
 }
 
-// ---- 1. Dependencies & .env (chỉ chạy khi thiếu) ----
+// ---- 1. Dependencies & .env ----
 const pythonExe = isWin
   ? path.join(ROOT, 'server', '.venv', 'Scripts', 'python.exe')
   : path.join(ROOT, 'server', '.venv', 'bin', 'python')
+const clientDir = path.join(ROOT, 'client')
+const serverDir = path.join(ROOT, 'server')
 
-if (!existsSync(path.join(ROOT, 'client', 'node_modules'))) {
-  info('📦 Cài dependencies frontend...')
-  if (!run('npm', ['install'], { cwd: path.join(ROOT, 'client') })) exitWith('npm install trong client/ thất bại.')
+// "Dấu vân tay" của file khai báo dependencies, lưu trong node_modules/.venv: khác đi = cần cài lại.
+function depsFingerprint(files) {
+  const hash = createHash('sha256')
+  for (const file of files) if (existsSync(file)) hash.update(readFileSync(file))
+  return hash.digest('hex')
 }
+function readStamp(file) {
+  return existsSync(file) ? readFileSync(file, 'utf8').trim() : null
+}
+
+const clientStamp = path.join(clientDir, 'node_modules', '.notewave-deps')
+const clientFingerprint = depsFingerprint([path.join(clientDir, 'package.json'), path.join(clientDir, 'package-lock.json')])
+const hasNodeModules = existsSync(path.join(clientDir, 'node_modules'))
+if (!hasNodeModules || readStamp(clientStamp) !== clientFingerprint) {
+  info(hasNodeModules ? '📦 Dependencies frontend đã thay đổi — đang cài lại...' : '📦 Cài dependencies frontend...')
+  if (!run('npm', ['install'], { cwd: clientDir })) exitWith('npm install trong client/ thất bại.')
+  writeFileSync(clientStamp, clientFingerprint)
+}
+
+const serverStamp = path.join(serverDir, '.venv', '.notewave-deps')
+const serverFingerprint = depsFingerprint([path.join(serverDir, 'requirements.txt'), path.join(serverDir, 'requirements-dev.txt')])
+const hasUv = () => run('uv', ['--version'], { quiet: true })
+const installServerDeps = () =>
+  hasUv()
+    ? run('uv', ['pip', 'install', '--python', `"${pythonExe}"`, '-r', 'requirements-dev.txt'], { cwd: serverDir })
+    : run(`"${pythonExe}"`, ['-m', 'pip', 'install', '-r', 'requirements-dev.txt'], { cwd: serverDir })
 if (!existsSync(pythonExe)) {
   info('🐍 Tạo môi trường Python cho backend (server/.venv)...')
-  const serverDir = path.join(ROOT, 'server')
-  const hasUv = run('uv', ['--version'], { quiet: true })
-  const created = hasUv
-    ? run('uv', ['venv'], { cwd: serverDir }) && run('uv', ['pip', 'install', '-r', 'requirements-dev.txt'], { cwd: serverDir })
-    : run(isWin ? 'python' : 'python3', ['-m', 'venv', '.venv'], { cwd: serverDir }) &&
-      run(`"${pythonExe}"`, ['-m', 'pip', 'install', '-r', 'requirements-dev.txt'], { cwd: serverDir })
+  const created = (hasUv() ? run('uv', ['venv'], { cwd: serverDir }) : run(isWin ? 'python' : 'python3', ['-m', 'venv', '.venv'], { cwd: serverDir })) && installServerDeps()
   if (!created) exitWith('Không tạo được môi trường Python. Cần Python >= 3.10 (khuyên dùng uv).')
+  writeFileSync(serverStamp, serverFingerprint)
+} else if (readStamp(serverStamp) !== serverFingerprint) {
+  info('🐍 Dependencies backend đã thay đổi — đang cài lại (server/requirements-dev.txt)...')
+  if (!installServerDeps()) exitWith('Cài dependencies Python thất bại (server/requirements-dev.txt).')
+  writeFileSync(serverStamp, serverFingerprint)
 }
 if (!existsSync(path.join(ROOT, '.env'))) {
   copyFileSync(path.join(ROOT, '.env.example'), path.join(ROOT, '.env'))
-  warn('📝 Đã tạo .env từ .env.example — nhớ điền SONIOX_API_KEY và OPENAI_API_KEY để dùng ghi âm / tóm tắt.')
+  warn('📝 Đã tạo .env từ .env.example — nhớ điền SONIOX_API_KEY, OPENAI_API_KEY và MISTRAL_API_KEY để dùng ghi âm / tóm tắt / quét tài liệu.')
 }
 
 // ---- 2. DATABASE_URL (Supabase thật, dùng chung với production) ----

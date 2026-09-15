@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.dependencies import DbDep, SettingsDep, SonioxDep, get_session_or_404
+from app.dependencies import DbDep, SettingsDep, SonioxDep, get_group_or_404, get_session_or_404
 from app.models.session import NoteSession, UploadStatus
 from app.services.soniox import SonioxError, SonioxNotConfiguredError
 from app.services.upload_processing import sync_upload_session
@@ -39,7 +39,9 @@ async def upload_and_transcribe(
     settings: SettingsDep,
     file: UploadFile = File(...),
     title: str | None = Form(default=None, max_length=200),
+    group_id: str | None = Form(default=None, max_length=32, description="Gán phiên vào nhóm ngay khi tạo (tải nhiều file)"),
 ) -> UploadAccepted:
+    """Mỗi request = 1 file = 1 phiên. Frontend tải nhiều file bằng nhiều request song song (có giới hạn)."""
     filename = Path(file.filename or "audio").name
     ext = Path(filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -53,12 +55,14 @@ async def upload_and_transcribe(
         raise HTTPException(status_code=422, detail="File rỗng.")
     if size > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"File vượt quá giới hạn {settings.max_upload_mb} MB.")
+    group = get_group_or_404(db, group_id) if group_id else None
 
     session = NoteSession(
         title=(title or "").strip() or Path(filename).stem[:200],
         source="upload",
         status="processing",
         original_filename=filename[:255],
+        group_id=group.id if group else None,
     )
 
     try:

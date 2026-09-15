@@ -77,7 +77,7 @@ def test_summarize(client, make_session, monkeypatch):
     from app.models.summary import MeetingSummary
     from app.routers import sessions as sessions_router
 
-    async def fake_summarize(title, segments, part_titles=None):
+    async def fake_summarize(title, segments, part_titles=None, source="live"):
         return MeetingSummary(summary=f"Tóm tắt {title}", action_items=[{"task": "Gửi báo cáo", "owner": "Người nói 2"}])
 
     monkeypatch.setattr(sessions_router, "summarize_transcript", fake_summarize)
@@ -106,6 +106,7 @@ def test_summarize_llm_failure_returns_502(client, make_session, monkeypatch):
 def test_health(client):
     body = client.get("/api/health").json()
     assert body["status"] == "ok" and body["soniox_configured"] is True and body["webhook_enabled"] is True
+    assert body["ocr_configured"] is True
     assert body["database"] == "ok" and body["database_error"] is None
 
 

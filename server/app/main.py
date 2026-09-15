@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.config import export_llm_provider_keys, get_settings
 from app.db import check_database, describe_database, init_db
-from app.routers import groups, sessions, temporary_key, upload, webhooks
+from app.routers import groups, ocr, sessions, temporary_key, upload, webhooks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 settings = get_settings()
@@ -21,8 +21,13 @@ async def lifespan(app: FastAPI):
     export_llm_provider_keys(settings)
     logging.getLogger("app").info("Database: %s", describe_database())
     init_db()
-    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as http:
+    async with (
+        httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as http,
+        # Mistral OCR: PDF nhiều trang có thể xử lý vài phút (SDK còn đặt timeout riêng cho từng request).
+        httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=30.0)) as ocr_http,
+    ):
         app.state.http = http
+        app.state.ocr_http = ocr_http
         yield
 
 
@@ -41,6 +46,7 @@ app.include_router(temporary_key.router)
 app.include_router(sessions.router)
 app.include_router(groups.router)
 app.include_router(upload.router)
+app.include_router(ocr.router)
 app.include_router(webhooks.router)
 
 
@@ -49,6 +55,7 @@ class HealthResponse(BaseModel):
     database: str  # "ok" | "error"
     database_error: str | None = None  # tên loại lỗi, không kèm chi tiết connection string
     soniox_configured: bool
+    ocr_configured: bool
     webhook_enabled: bool
 
 
@@ -62,5 +69,6 @@ def health() -> HealthResponse:
         database="ok" if db_error is None else "error",
         database_error=db_error,
         soniox_configured=bool(settings.soniox_api_key),
+        ocr_configured=bool(settings.mistral_api_key),
         webhook_enabled=settings.webhook_url is not None,
     )

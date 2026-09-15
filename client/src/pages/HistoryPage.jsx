@@ -11,6 +11,7 @@ import {
   Layers,
   Loader2,
   Mic,
+  ScanText,
   Search,
   Settings2,
   Sparkles,
@@ -26,12 +27,14 @@ import { useToast } from '../components/Toast'
 import { Button, Card, EmptyState, ErrorState } from '../components/ui'
 import { groupActions, useGroups } from '../hooks/useGroups'
 import { api } from '../lib/api'
-import { formatDateTime, formatDuration } from '../lib/format'
+import { formatDateTime, formatDuration, SOURCE_LABELS } from '../lib/format'
+import { SOURCE_META } from '../lib/sources'
 
 const SOURCE_FILTERS = [
-  { value: '', label: 'Tất cả' },
-  { value: 'live', label: 'Ghi âm trực tiếp' },
-  { value: 'upload', label: 'File tải lên' },
+  { value: '', label: 'Tất cả', short: 'Tất cả' },
+  { value: 'live', label: 'Ghi âm trực tiếp', short: 'Ghi âm' },
+  { value: 'upload', label: 'File tải lên', short: 'Tải lên' },
+  { value: 'ocr', label: 'Tài liệu quét', short: 'Quét' },
 ]
 
 function useDebounced(value, delay = 300) {
@@ -59,8 +62,9 @@ function Checkbox({ checked, onChange, label, disabled }) {
 }
 
 function SessionRow({ item, selected, selectable, onToggle, onOpen, onRestore, restoring }) {
-  const isLive = item.source === 'live'
-  const Icon = isLive ? Mic : FileAudio
+  const meta = SOURCE_META[item.source] ?? SOURCE_META.upload
+  const Icon = meta.icon
+  const sourceLabel = SOURCE_LABELS[item.source] ?? item.source
   const duration = formatDuration(item.duration_ms)
   return (
     <li className={`flex items-start transition-colors ${selected ? 'bg-brand-50/50' : ''}`}>
@@ -74,8 +78,8 @@ function SessionRow({ item, selected, selectable, onToggle, onOpen, onRestore, r
         className={`group flex min-w-0 flex-1 items-start gap-4 py-4 pr-4 text-left transition-colors hover:bg-paper/70 sm:pr-5 ${selectable ? 'pl-1' : 'pl-4 sm:pl-5'}`}
       >
         <div
-          className={`mt-0.5 hidden size-10 shrink-0 place-items-center rounded-xl sm:grid ${isLive ? 'bg-brand-50 text-brand-600' : 'bg-[#efedf9] text-[#4a44a8]'}`}
-          title={isLive ? 'Ghi âm trực tiếp' : 'File tải lên'}
+          className={`mt-0.5 hidden size-10 shrink-0 place-items-center rounded-xl sm:grid ${meta.iconTone}`}
+          title={sourceLabel}
         >
           <Icon className="size-[18px]" />
         </div>
@@ -104,7 +108,7 @@ function SessionRow({ item, selected, selectable, onToggle, onOpen, onRestore, r
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-muted">
             <span className="inline-flex items-center gap-1">
               <Icon className="size-3 sm:hidden" />
-              {isLive ? 'Ghi âm trực tiếp' : 'File tải lên'}
+              {sourceLabel}
             </span>
             <span>{formatDateTime(item.created_at)}</span>
             {duration && (
@@ -364,7 +368,8 @@ export default function HistoryPage({ onOpen, onNavigate }) {
                   source === f.value ? 'bg-surface text-ink shadow-card' : 'text-muted hover:text-ink'
                 }`}
               >
-                {f.label}
+                <span className="sm:hidden">{f.short}</span>
+                <span className="hidden sm:inline">{f.label}</span>
               </button>
             ))}
           </div>
@@ -414,12 +419,15 @@ export default function HistoryPage({ onOpen, onNavigate }) {
               </Button>
             </EmptyState>
           ) : (
-            <EmptyState icon={History} title="Chưa có phiên ghi chú nào" description="Ghi âm cuộc họp hoặc tải lên một file ghi âm — transcript sẽ được lưu tại đây.">
+            <EmptyState icon={History} title="Chưa có phiên ghi chú nào" description="Ghi âm cuộc họp, tải lên file ghi âm hoặc quét tài liệu — nội dung sẽ được lưu tại đây.">
               <Button variant="primary" icon={Mic} onClick={() => onNavigate('live')}>
                 Bắt đầu ghi âm
               </Button>
               <Button icon={FileAudio} onClick={() => onNavigate('upload')}>
                 Tải file lên
+              </Button>
+              <Button icon={ScanText} onClick={() => onNavigate('scan')}>
+                Quét tài liệu
               </Button>
             </EmptyState>
           )

@@ -1,5 +1,6 @@
-import { CircleAlert, FileAudio, Loader2, Mic, RotateCw } from 'lucide-react'
+import { CircleAlert, Loader2, RotateCw } from 'lucide-react'
 import { SOURCE_LABELS } from '../lib/format'
+import { SOURCE_META } from '../lib/sources'
 
 const BUTTON_VARIANTS = {
   primary: 'bg-brand-600 text-white hover:bg-brand-700 shadow-card',
@@ -30,13 +31,10 @@ export function Button({ variant = 'secondary', size = 'md', loading = false, ic
 }
 
 export function SourceBadge({ source, compact = false }) {
-  const Icon = source === 'live' ? Mic : FileAudio
+  const meta = SOURCE_META[source] ?? SOURCE_META.upload
+  const Icon = meta.icon
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full font-medium ${
-        source === 'live' ? 'bg-brand-50 text-brand-700' : 'bg-[#efedf9] text-[#4a44a8]'
-      } ${compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'}`}
-    >
+    <span className={`inline-flex items-center gap-1 rounded-full font-medium ${meta.tone} ${compact ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'}`}>
       <Icon className={compact ? 'size-3' : 'size-3.5'} />
       {SOURCE_LABELS[source]}
     </span>

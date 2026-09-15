@@ -5,10 +5,10 @@ const POLL_MS = 3000
 const MAX_BACKOFF_MS = 20000
 
 /**
- * Poll GET /api/upload-transcribe/{id}/status cho tới khi completed/failed.
- * Lỗi mạng tạm thời thì giãn dần khoảng poll thay vì bỏ cuộc.
+ * Poll trạng thái xử lý nền cho tới khi completed/failed: mặc định GET /api/upload-transcribe/{id}/status,
+ * phiên quét tài liệu truyền `api.ocrStatus`. Lỗi mạng tạm thời thì giãn dần khoảng poll thay vì bỏ cuộc.
  */
-export function useUploadStatus(sessionId, enabled = true) {
+export function useUploadStatus(sessionId, enabled = true, fetchStatus = api.uploadStatus) {
   const [state, setState] = useState({ status: 'processing', error: null, connectionIssue: false })
 
   useEffect(() => {
@@ -22,7 +22,7 @@ export function useUploadStatus(sessionId, enabled = true) {
 
     const tick = async () => {
       try {
-        const res = await api.uploadStatus(sessionId, { signal: controller.signal })
+        const res = await fetchStatus(sessionId, { signal: controller.signal })
         if (cancelled) return
         delay = POLL_MS
         setState({ status: res.status, error: res.error_message, connectionIssue: false })
@@ -45,7 +45,7 @@ export function useUploadStatus(sessionId, enabled = true) {
       clearTimeout(timer)
       controller.abort()
     }
-  }, [sessionId, enabled])
+  }, [sessionId, enabled, fetchStatus])
 
   return state
 }

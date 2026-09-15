@@ -105,6 +105,10 @@ export const api = {
 
   summarizeSession: (id) => request(`/api/sessions/${id}/summarize`, { method: 'POST' }),
   uploadStatus: (id, { signal } = {}) => request(`/api/upload-transcribe/${id}/status`, { signal }),
+  ocrStatus: (id, { signal } = {}) => request(`/api/ocr-extract/${id}/status`, { signal }),
+  /** Chấp nhận / bỏ qua đề xuất sửa từ tiếng Anh của phiên quét tài liệu. */
+  decideOcrCorrections: (id, { accept = [], reject = [] }) =>
+    request(`/api/sessions/${id}/ocr-corrections`, { method: 'POST', json: { accept, reject } }),
 
   async exportSession(id, format) {
     const response = await request(`/api/sessions/${id}/export?format=${format}`, { raw: true })
@@ -120,36 +124,44 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   },
 
-  /**
-   * Upload file audio kèm tiến trình (fetch chưa hỗ trợ upload progress nên dùng XHR).
-   * @returns {{ promise: Promise<object>, abort: () => void }}
-   */
-  uploadAudio(file, { title, onProgress } = {}) {
-    const xhr = new XMLHttpRequest()
-    const promise = new Promise((resolve, reject) => {
-      const form = new FormData()
-      form.append('file', file)
-      if (title) form.append('title', title)
-      xhr.open('POST', `${BASE_URL}/api/upload-transcribe`)
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) onProgress?.(e.loaded / e.total)
+  /** Upload 1 file audio -> Soniox Async API (1 request = 1 phiên; tải nhiều file = nhiều request). */
+  uploadAudio: (file, { groupId, ...options } = {}) =>
+    uploadWithProgress('/api/upload-transcribe', { file, group_id: groupId }, options),
+  /** Upload 1 hoặc nhiều ảnh / PDF -> gộp thành 1 phiên, Mistral OCR + rà soát từ tiếng Anh (xử lý nền). */
+  ocrExtract: (files, options) => uploadWithProgress('/api/ocr-extract', { files: [].concat(files) }, options),
+}
+
+/**
+ * Upload multipart kèm tiến trình (fetch chưa hỗ trợ upload progress nên dùng XHR).
+ * `fields`: { tên field: giá trị | File | File[] } — mảng được gửi lặp lại cùng tên field; bỏ qua giá trị rỗng.
+ * @returns {{ promise: Promise<object>, abort: () => void }}
+ */
+function uploadWithProgress(path, fields, { title, onProgress } = {}) {
+  const xhr = new XMLHttpRequest()
+  const promise = new Promise((resolve, reject) => {
+    const form = new FormData()
+    for (const [name, value] of Object.entries({ ...fields, title })) {
+      for (const v of [].concat(value)) if (v != null && v !== '') form.append(name, v)
+    }
+    xhr.open('POST', `${BASE_URL}${path}`)
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total)
+    }
+    xhr.onload = () => {
+      let body = null
+      try {
+        body = JSON.parse(xhr.responseText)
+      } catch {
+        /* ignore */
       }
-      xhr.onload = () => {
-        let body = null
-        try {
-          body = JSON.parse(xhr.responseText)
-        } catch {
-          /* ignore */
-        }
-        if (xhr.status >= 200 && xhr.status < 300) resolve(body)
-        else reject(new ApiError(detailToMessage(body?.detail, xhr.status), xhr.status))
-      }
-      xhr.onerror = () => reject(new ApiError(NETWORK_ERROR_MESSAGE, 0))
-      xhr.onabort = () => reject(new DOMException('Đã huỷ', 'AbortError'))
-      xhr.send(form)
-    })
-    return { promise, abort: () => xhr.abort() }
-  },
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body)
+      else reject(new ApiError(detailToMessage(body?.detail, xhr.status), xhr.status))
+    }
+    xhr.onerror = () => reject(new ApiError(NETWORK_ERROR_MESSAGE, 0))
+    xhr.onabort = () => reject(new DOMException('Đã huỷ', 'AbortError'))
+    xhr.send(form)
+  })
+  return { promise, abort: () => xhr.abort() }
 }
 
 function parseFilename(disposition) {

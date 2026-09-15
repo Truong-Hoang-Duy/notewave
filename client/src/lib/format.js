@@ -43,6 +43,7 @@ export function formatBytes(bytes) {
 export const SOURCE_LABELS = {
   live: 'Ghi âm trực tiếp',
   upload: 'File tải lên',
+  ocr: 'Tài liệu quét',
 }
 
 // Bảng màu người nói: tông trầm, đủ tương phản trên nền giấy, không trùng màu đỏ "đang ghi".

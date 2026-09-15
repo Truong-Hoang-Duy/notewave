@@ -53,9 +53,22 @@ def get_summary_agent() -> Agent[None, MeetingSummary]:
 
 
 async def summarize_transcript(
-    title: str, segments: list[TranscriptSegment], part_titles: dict[str, str] | None = None
+    title: str,
+    segments: list[TranscriptSegment],
+    part_titles: dict[str, str] | None = None,
+    source: str = "live",
 ) -> MeetingSummary:
     transcript = segments_to_plain_text(segments, part_titles)
-    prompt = f"Tiêu đề phiên: {title}\n\nTranscript:\n{transcript}"
+    if source == "ocr":
+        # Phiên quét tài liệu: nội dung là văn bản OCR (Markdown), không phải lời nói — báo cho model qua prompt,
+        # giữ nguyên INSTRUCTIONS đã được kiểm chứng.
+        prompt = (
+            f"Tiêu đề phiên: {title}\n\n"
+            "Nội dung dưới đây là văn bản trích xuất bằng OCR từ ảnh chụp/PDF tài liệu (biên bản, ghi chú), "
+            "không phải transcript lời nói; không có nhãn người nói.\n\n"
+            f"Nội dung tài liệu:\n{transcript}"
+        )
+    else:
+        prompt = f"Tiêu đề phiên: {title}\n\nTranscript:\n{transcript}"
     result = await get_summary_agent().run(prompt)
     return result.output

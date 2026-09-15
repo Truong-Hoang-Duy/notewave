@@ -23,6 +23,7 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["SONIOX_API_KEY"] = "test-soniox-key"
 os.environ["PUBLIC_BASE_URL"] = "https://api.example.com"
 os.environ["SONIOX_WEBHOOK_SECRET"] = "s3cret"
+os.environ["MISTRAL_API_KEY"] = "test-mistral-key"
 if os.environ.get("RUN_LLM_TESTS") != "1":
     # Mặc định không bao giờ gọi LLM thật; RUN_LLM_TESTS=1 thì dùng key thật trong .env.
     os.environ["OPENAI_API_KEY"] = "test-openai-key"
@@ -41,6 +42,7 @@ from app.db import engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 from tests.soniox_fake import soniox  # noqa: E402, F401  (fixture Soniox giả lập)
+from tests.mistral_fake import mistral  # noqa: E402, F401  (fixture Mistral OCR giả lập)
 
 
 @pytest.fixture(scope="session")

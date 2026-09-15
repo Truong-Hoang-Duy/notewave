@@ -5,10 +5,11 @@ from docx import Document
 from docx.shared import Pt, RGBColor
 
 from app.models.session import SessionRead
+from app.services.markdown_docx import add_markdown
 from app.services.transcript import format_timestamp, segments_to_plain_text, speaker_label
 
 DISPLAY_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
-SOURCE_LABELS = {"live": "Ghi âm trực tiếp", "upload": "File tải lên"}
+SOURCE_LABELS = {"live": "Ghi âm trực tiếp", "upload": "File tải lên", "ocr": "Tài liệu quét (OCR)"}
 
 
 def _part_titles(session: SessionRead) -> dict[str, str]:
@@ -25,6 +26,8 @@ def _header_lines(session: SessionRead) -> list[str]:
         lines.append(f"Thời lượng: {format_timestamp(session.duration_ms)}")
     if session.original_filename:
         lines.append(f"File gốc: {session.original_filename}")
+    if session.ocr:
+        lines.append(f"Số trang: {session.ocr.pages_processed}")
     if session.group:
         lines.append(f"Nhóm: {session.group.name}")
     if session.merge_sources:
@@ -47,7 +50,7 @@ def build_txt(session: SessionRead) -> bytes:
             parts.append("")
         if s.decisions:
             parts += ["Quyết định:", *[f"- {d}" for d in s.decisions], ""]
-        parts += ["TRANSCRIPT", ""]
+        parts += [_content_heading(session).upper(), ""]
     parts.append(segments_to_plain_text(session.segments, _part_titles(session)))
     # BOM giúp Notepad cũ trên Windows hiển thị đúng tiếng Việt.
     return ("﻿" + "\n".join(parts) + "\n").encode("utf-8")
@@ -88,7 +91,35 @@ def build_docx(session: SessionRead) -> bytes:
             for d in s.decisions:
                 doc.add_paragraph(d, style="List Bullet")
 
-    doc.add_heading("Transcript", level=1)
+    doc.add_heading(_content_heading(session), level=1)
+    if session.source == "ocr":
+        _add_ocr_content(doc, session)
+    else:
+        _add_transcript(doc, session)
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
+
+def _content_heading(session: SessionRead) -> str:
+    return "Nội dung tài liệu" if session.source == "ocr" else "Transcript"
+
+
+def _add_ocr_content(doc: Document, session: SessionRead) -> None:
+    """Nội dung chốt của phiên OCR (segments = từng trang Markdown, đã gồm các đề xuất sửa người dùng chấp nhận)."""
+    multi_page = len({s.page for s in session.segments if s.page is not None}) > 1
+    for seg in session.segments:
+        if multi_page and seg.page is not None:
+            label = doc.add_paragraph()
+            run = label.add_run(f"Trang {seg.page}")
+            run.bold = True
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor(0x2F, 0x5D, 0x50)
+        add_markdown(doc, seg.text)
+
+
+def _add_transcript(doc: Document, session: SessionRead) -> None:
     part_titles = _part_titles(session)
     current_origin = None
     for seg in session.segments:
@@ -103,7 +134,3 @@ def build_docx(session: SessionRead) -> bytes:
             label.font.size = Pt(9)
             label.font.color.rgb = RGBColor(0x2F, 0x5D, 0x50)
         para.add_run(seg.text)
-
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    return buffer.getvalue()

@@ -7,6 +7,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.models.group import SessionGroup
 from app.models.session import NoteSession
+from app.services.ocr import OcrService
 from app.services.soniox import SonioxService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -18,6 +19,13 @@ def get_soniox(request: Request, settings: SettingsDep) -> SonioxService:
 
 
 SonioxDep = Annotated[SonioxService, Depends(get_soniox)]
+
+
+def get_ocr(request: Request, settings: SettingsDep) -> OcrService:
+    return OcrService(settings, request.app.state.ocr_http)
+
+
+OcrDep = Annotated[OcrService, Depends(get_ocr)]
 
 
 def get_session_or_404(db: Session, session_id: str) -> NoteSession:

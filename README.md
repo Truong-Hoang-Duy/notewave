@@ -2,6 +2,8 @@
 
 Ghi chú / phụ đề cuộc họp bằng giọng nói: ghi âm trực tiếp (Soniox real-time) hoặc tải file ghi âm lên
 (Soniox Async API), phân biệt người nói, lưu lịch sử, tóm tắt bằng AI (PydanticAI) và xuất .txt/.docx.
+Thêm luồng **Quét tài liệu**: ảnh chụp / PDF (nhiều file gộp thành 1 tài liệu) → Mistral OCR → AI đề xuất sửa từ
+tiếng Anh viết sai (người dùng duyệt). Tải file ghi âm hỗ trợ chọn nhiều file một lúc (mỗi file thành 1 phiên).
 
 - `client/` — React + Vite + Tailwind CSS
 - `server/` — FastAPI + SQLModel + PydanticAI
@@ -53,7 +55,8 @@ npm run dev        # ở gốc repo — hoặc nhấp đúp dev.bat, hoặc Ctrl
 
 `run-dev.js` tự làm hết:
 
-1. **Lần đầu:** cài dependencies còn thiếu (`client/`, Python venv `server/.venv`) và tạo `.env` từ `.env.example`.
+1. **Dependencies:** cài khi còn thiếu (`client/`, Python venv `server/.venv`) và **tự cài lại khi `package-lock.json` /
+   `server/requirements*.txt` thay đổi** (sau `git pull` có thư viện mới); tạo `.env` từ `.env.example` nếu chưa có.
 2. **Kiểm tra `DATABASE_URL`**: báo lỗi rõ nếu còn trống, không phải Postgres, hoặc vẫn trỏ Supabase local cũ
    (`127.0.0.1:54322`); in ra host Supabase đang dùng.
 3. **Chạy backend** (http://localhost:8000) **+ frontend** (http://localhost:5173, tự mở trình duyệt).
@@ -64,7 +67,9 @@ Kiểm tra kết nối DB: mở http://localhost:8000/api/health → phải có 
 Chỉ cần làm một lần sau khi `.env` được tạo, ngoài `DATABASE_URL` điền:
 - `SONIOX_API_KEY` — https://console.soniox.com → **API Keys**. Key này chỉ nằm ở backend; trình duyệt chỉ nhận
   Temporary API Key ngắn hạn qua `POST /api/temporary-key`.
-- `OPENAI_API_KEY` — cho nút "Tóm tắt" (`SUMMARY_MODEL=openai:gpt-5.6-luna`).
+- `OPENAI_API_KEY` — cho nút "Tóm tắt" (`SUMMARY_MODEL=openai:gpt-5.6-luna`) và bước rà soát từ tiếng Anh sau OCR.
+- `MISTRAL_API_KEY` — https://console.mistral.ai/api-keys, cho tab "Quét tài liệu" (Mistral OCR). Thiếu key thì tab
+  này báo lỗi 503, các tính năng khác vẫn chạy.
 
 Bảng dữ liệu được backend tự tạo khi khởi động (đã có sẵn trên production).
 
@@ -104,10 +109,11 @@ Test chạy trên **cùng database Supabase** (`DATABASE_URL` trong `.env`, ho�
 cd server && .venv/Scripts/python -m pytest      # hoặc ở gốc repo (Windows): npm run test:server
 ```
 
-Test không gọi Soniox/OpenAI thật. Muốn thử tóm tắt bằng model thật (dùng `OPENAI_API_KEY` trong `.env`, tốn phí vài xu):
+Test không gọi Soniox/Mistral/OpenAI thật. Muốn thử tóm tắt / rà soát OCR bằng model thật (dùng `OPENAI_API_KEY`
+trong `.env`, tốn phí vài xu):
 
 ```bash
-cd server && RUN_LLM_TESTS=1 .venv/Scripts/python -m pytest tests/test_summary_agent.py -k live
+cd server && RUN_LLM_TESTS=1 .venv/Scripts/python -m pytest tests/test_summary_agent.py tests/test_ocr.py -k live
 ```
 
 ## Deploy miễn phí

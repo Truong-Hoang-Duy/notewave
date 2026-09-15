@@ -55,10 +55,14 @@ def segments_to_plain_text(segments: list[TranscriptSegment], part_titles: dict[
     """`part_titles` (id phiên gốc -> tiêu đề): chèn tiêu đề phần khi transcript chuyển sang phiên gốc khác."""
     lines: list[str] = []
     current_origin: str | None = None
+    # Phiên quét tài liệu nhiều trang: chèn nhãn "Trang N" trước mỗi trang.
+    multi_page = len({s.page for s in segments if s.page is not None}) > 1
     for seg in segments:
         if part_titles and seg.origin and seg.origin != current_origin:
             current_origin = seg.origin
             lines.append(f"--- {part_titles.get(seg.origin, 'Phần gộp')} ---")
+        if multi_page and seg.page is not None:
+            lines.append(f"--- Trang {seg.page} ---")
         prefix_parts = [p for p in (format_timestamp(seg.start_ms), speaker_label(seg.speaker)) if p]
         prefix = f"[{' · '.join(prefix_parts)}] " if prefix_parts else ""
         lines.append(f"{prefix}{seg.text}")

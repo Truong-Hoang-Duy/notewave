@@ -1,5 +1,23 @@
-import { Archive, ArchiveRestore, ArrowLeft, Check, Clock, Download, FileText, Layers, PenLine, Pencil, Sparkles, Trash2, Users, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  Clock,
+  Download,
+  FileText,
+  Layers,
+  PenLine,
+  Pencil,
+  SpellCheck,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+  Users,
+  X,
+} from 'lucide-react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { groupActions } from '../hooks/useGroups'
 import { useScrolled } from '../hooks/useScrolled'
 import { useUploadStatus } from '../hooks/useUploadStatus'
@@ -8,12 +26,27 @@ import { api } from '../lib/api'
 import { formatDateTime, formatDuration, speakerColor, speakerLabel } from '../lib/format'
 import ConfirmDialog from './ConfirmDialog'
 import GroupSelect from './GroupSelect'
+import OcrCorrectionsDialog from './OcrCorrectionsDialog'
 import ProcessingCard from './ProcessingCard'
 import SummaryPanel from './SummaryPanel'
 import { useToast } from './Toast'
 import TranscriptEditor from './TranscriptEditor'
 import TranscriptView from './TranscriptView'
 import { Button, Card, EmptyState, ErrorState, InlineAlert, SourceBadge } from './ui'
+
+// react-markdown + remark-gfm chỉ cần cho phiên quét tài liệu -> tách chunk, tải khi mở phiên OCR.
+const OcrDocumentView = lazy(() => import('./OcrDocumentView'))
+
+function ContentSkeleton() {
+  return (
+    <div aria-busy="true" className="space-y-3">
+      <div className="skeleton h-5 w-1/3" />
+      <div className="skeleton h-4 w-full" />
+      <div className="skeleton h-4 w-11/12" />
+      <div className="skeleton h-4 w-4/5" />
+    </div>
+  )
+}
 
 function DetailSkeleton() {
   return (
@@ -147,6 +180,48 @@ function ExportMenu({ onExport, exporting }) {
   )
 }
 
+/** Dòng cảnh báo độ tin cậy OCR + banner đề xuất sửa từ tiếng Anh (nằm trong header cố định của khối nội dung). */
+function OcrNotices({ ocr, onOpen }) {
+  const pending = ocr?.corrections.filter((c) => c.status === 'pending').length ?? 0
+  const failedFiles = ocr?.files?.filter((f) => f.error) ?? []
+  return (
+    <div className="w-full space-y-2.5">
+      <p className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-muted">
+        <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warn" />
+        Nội dung do AI trích xuất từ ảnh/PDF, có thể sai sót với chữ viết tay khó đọc — hãy kiểm tra lại trước khi dùng.
+      </p>
+      {pending > 0 && (
+        <button
+          onClick={onOpen}
+          className="group flex w-full animate-fade-in items-center gap-3 rounded-xl border border-[#f0dcb8] bg-warn-soft px-3.5 py-2.5 text-left text-[13px] text-[#7a4a0c] transition-colors hover:border-[#e6c894]"
+        >
+          <SpellCheck className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 leading-snug">
+            Đã phát hiện <strong className="font-semibold">{pending} từ tiếng Anh</strong> có thể viết sai, đã đề xuất sửa —{' '}
+            <span className="underline decoration-[#d9b27a] underline-offset-2">bấm để xem chi tiết</span>
+          </span>
+          <ChevronRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+        </button>
+      )}
+      {failedFiles.length > 0 && (
+        <p className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-rec">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            Không đọc được {failedFiles.length} file (đã bỏ qua, các file khác vẫn được giữ):{' '}
+            <span className="font-medium break-all">{failedFiles.map((f) => f.filename).join(', ')}</span>
+          </span>
+        </p>
+      )}
+      {ocr?.review_error && (
+        <p className="flex items-start gap-1.5 text-[12.5px] leading-relaxed text-warn">
+          <SpellCheck className="mt-0.5 size-3.5 shrink-0" />
+          {ocr.review_error} Bạn vẫn có thể tự sửa bằng “Chỉnh sửa nội dung”.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSession, backLabel = 'Lịch sử' }) {
   const toast = useToast()
   const [session, setSession] = useState(null)
@@ -164,6 +239,9 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [changingGroup, setChangingGroup] = useState(false)
   const [restoring, setRestoring] = useState(false)
+  const [correctionsOpen, setCorrectionsOpen] = useState(false)
+  const [focusCorrection, setFocusCorrection] = useState(null)
+  const [deciding, setDeciding] = useState(null) // null | 'all' | id đề xuất
   const fitRef = useViewportFit()
   const [transcriptScrolled, onTranscriptScroll] = useScrolled()
 
@@ -180,7 +258,8 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
   }, [sessionId, reloadKey])
 
   const isProcessing = session?.status === 'processing'
-  const upload = useUploadStatus(sessionId, isProcessing)
+  const isOcr = session?.source === 'ocr'
+  const upload = useUploadStatus(sessionId, isProcessing, isOcr ? api.ocrStatus : api.uploadStatus)
 
   useEffect(() => {
     if (isProcessing && upload.status !== 'processing') setReloadKey((k) => k + 1)
@@ -282,6 +361,34 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
     }
   }
 
+  const openCorrections = useCallback((id = null) => {
+    setFocusCorrection(id)
+    setCorrectionsOpen(true)
+  }, [])
+
+  const decideCorrections = async (decision, key) => {
+    setDeciding(key)
+    try {
+      const updated = await api.decideOcrCorrections(sessionId, decision)
+      setSession(updated)
+      const byId = new Map(updated.ocr.corrections.map((c) => [c.id, c]))
+      const accepted = decision.accept ?? []
+      const unavailable = accepted.filter((id) => byId.get(id)?.status === 'unavailable').length
+      if (unavailable) toast.error(`${unavailable} đề xuất không còn áp dụng được vì nội dung đã được chỉnh sửa.`)
+      if (key === 'all') {
+        setCorrectionsOpen(false)
+        if (accepted.length > unavailable) toast.success(`Đã áp dụng ${accepted.length - unavailable} chỉnh sửa.`)
+      } else if (!updated.ocr.corrections.some((c) => c.status === 'pending')) {
+        setCorrectionsOpen(false)
+        toast.success('Đã xử lý hết các đề xuất sửa.')
+      }
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setDeciding(null)
+    }
+  }
+
   const remove = async () => {
     setDeleting(true)
     try {
@@ -344,6 +451,13 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
               {duration}
             </span>
           )}
+          {session.ocr?.pages_processed > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <FileText className="size-3.5" />
+              {session.ocr.pages_processed} trang
+              {session.ocr.files?.length > 1 && ` · ${session.ocr.files.length} file`}
+            </span>
+          )}
           {session.original_filename && <span className="max-w-full truncate">{session.original_filename}</span>}
           {session.merge_sources.length > 0 && (
             <span
@@ -367,7 +481,7 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
               ariaLabel="Nhóm của phiên"
             />
             <Button icon={PenLine} onClick={() => setEditing(true)}>
-              Chỉnh sửa transcript
+              {isOcr ? 'Chỉnh sửa nội dung' : 'Chỉnh sửa transcript'}
             </Button>
             <ExportMenu onExport={exportAs} exporting={exporting} />
             <Button
@@ -434,7 +548,7 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
                 transcriptScrolled ? 'shadow-[0_10px_18px_-14px_rgb(29_27_24/0.28)]' : ''
               }`}
             >
-              <h2 className="text-sm font-semibold text-ink">Transcript</h2>
+              <h2 className="text-sm font-semibold text-ink">{isOcr ? 'Nội dung tài liệu' : 'Transcript'}</h2>
               {speakers.length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted">
                   <Users className="size-3.5" />
@@ -446,6 +560,7 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
                   ))}
                 </div>
               )}
+              {isOcr && <OcrNotices ocr={session.ocr} onOpen={() => openCorrections()} />}
             </div>
             <div onScroll={onTranscriptScroll} className="scroll-area px-5 py-6 sm:px-7 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain">
               {editing ? (
@@ -456,7 +571,18 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
                   onSave={saveSegments}
                   onCancel={cancelEditing}
                   onDirtyChange={setEditDirty}
+                  title={isOcr ? 'Đang chỉnh sửa nội dung' : undefined}
                 />
+              ) : isOcr ? (
+                <Suspense fallback={<ContentSkeleton />}>
+                  <OcrDocumentView
+                    segments={session.segments}
+                    corrections={session.ocr?.corrections}
+                    files={session.ocr?.files}
+                    onOpenCorrection={openCorrections}
+                    placeholder={<EmptyState icon={FileText} title="Tài liệu trống" description="Không có nội dung nào được trích xuất." />}
+                  />
+                </Suspense>
               ) : (
                 <TranscriptView
                   segments={session.segments}
@@ -479,6 +605,18 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
             />
           </aside>
         </div>
+      )}
+
+      {isOcr && session.ocr && (
+        <OcrCorrectionsDialog
+          open={correctionsOpen}
+          corrections={session.ocr.corrections}
+          focusId={focusCorrection}
+          deciding={deciding}
+          locked={editing}
+          onDecide={decideCorrections}
+          onClose={() => !deciding && setCorrectionsOpen(false)}
+        />
       )}
 
       <ConfirmDialog

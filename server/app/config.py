@@ -43,6 +43,11 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = Field(default=100, ge=1)
 
+    # Mistral OCR cho luồng "Quét tài liệu" (ảnh / PDF). Key chỉ dùng ở backend.
+    mistral_api_key: str = ""
+    mistral_api_base_url: str = "https://api.mistral.ai"
+    ocr_model: str = "mistral-ocr-latest"
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip().rstrip("/") for o in self.allowed_origins.split(",") if o.strip()]
