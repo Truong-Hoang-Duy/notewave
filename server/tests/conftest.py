@@ -43,7 +43,9 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["SONIOX_API_KEY"] = "test-soniox-key"
 os.environ["PUBLIC_BASE_URL"] = "https://api.example.com"
 os.environ["SONIOX_WEBHOOK_SECRET"] = "s3cret"
-os.environ["OPENAI_API_KEY"] = "test-openai-key"
+if os.environ.get("RUN_LLM_TESTS") != "1":
+    # Mặc định không bao giờ gọi LLM thật; RUN_LLM_TESTS=1 thì dùng key thật trong .env.
+    os.environ["OPENAI_API_KEY"] = "test-openai-key"
 
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402

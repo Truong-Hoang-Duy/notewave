@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     database_url: str = ""
     allowed_origins: str = "http://localhost:5173"
 
-    summary_model: str = "openai:gpt-5.4-mini"
+    summary_model: str = "openai:gpt-5.6-luna"
+    # Mức reasoning cho model OpenAI (none | low | medium | high). Trống = mặc định của model.
+    summary_reasoning_effort: str = ""
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     gemini_api_key: str = ""

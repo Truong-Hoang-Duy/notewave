@@ -243,3 +243,33 @@
 - Vấn đề đã biết:
   - App chưa có đăng nhập: sau khi deploy, ai có URL đều truy cập được dữ liệu và dùng hạn mức Soniox/OpenAI
     (đã ghi cảnh báo trong DEPLOY.md mục 10).
+
+## [2026-09-15] — Chuyển model tóm tắt sang `openai:gpt-5.6-luna` và tối ưu cho model này
+- Bối cảnh: người dùng đổi `SUMMARY_MODEL=openai:gpt-5.6-luna` trong `.env`, yêu cầu cập nhật dự án cho phù hợp.
+- Kiểm tra model (pydantic-ai 2.43): model được nhận diện, chạy qua OpenAI Responses API; reasoning **bật mặc định**
+  (gpt-5.4-mini thì tắt), context 1.05M token, không hỗ trợ reasoning effort `minimal`.
+- Đo thực tế với transcript họp tiếng Việt mẫu (gọi API thật):
+  - Reasoning mặc định: ~8–11 giây, tóm tắt đúng, gộp đúng việc trùng lặp, thời hạn đúng.
+  - `openai_reasoning_effort=low`: ~4 giây nhưng tách 1 việc thành 2 mục trùng, ghi sai thời hạn ("thêm hai ngày").
+  - → Giữ reasoning mặc định. Giá theo bảng `genai_prices`: luna $0.40/1M input, $1.80/1M output
+    (~$0.005 cho tóm tắt 1 buổi họp 60 phút) — rẻ hơn gpt-5.4-mini (~$0.018).
+- Đã làm:
+  - Đổi mặc định sang `openai:gpt-5.6-luna` ở `config.py`, `.env.example`, `render.yaml`, `README.md`, `DEPLOY.md`, `CLAUDE.md`.
+  - Biến mới (tuỳ chọn) `SUMMARY_REASONING_EFFORT` (none|low|medium|high, trống = mặc định model; chỉ áp dụng
+    cho model OpenAI) — thêm vào `.env.example`, `.env` (để trống), `CLAUDE.md` mục 5.
+  - `summary_agent.py`: `build_model_settings()`, `retries=2` cho lỗi validate output; viết lại `INSTRUCTIONS`:
+    owner dạng "Tên (Người nói N)" khi suy ra chắc chắn tên, gộp việc trùng, `due` chỉ khi có mốc cụ thể,
+    `decisions` chỉ ghi điều đã chốt, bỏ qua câu đệm. Đo lại sau khi sửa prompt: owner ra "Minh (Người nói 2)",
+    "Lan (Người nói 3)", không còn việc trùng/sai hạn.
+  - Test mới `tests/test_summary_agent.py`: mặc định model, cấu hình reasoning theo provider, chạy endpoint
+    `/summarize` qua agent thật với `FunctionModel` (kiểm tra prompt có nhãn người nói, tiêu đề phần của phiên gộp,
+    instructions); test LLM thật chỉ chạy khi `RUN_LLM_TESTS=1` (conftest không ghi đè `OPENAI_API_KEY` khi bật).
+  - `DEPLOY.md`: thêm dòng xử lý sự cố "tóm tắt chạy lâu".
+- File/module đã thay đổi: `server/app/config.py`, `server/app/services/summary_agent.py`, `server/tests/conftest.py`,
+  `server/tests/test_summary_agent.py` (mới), `.env.example`, `.env`, `render.yaml`, `README.md`, `DEPLOY.md`,
+  `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`
+- Đã kiểm thử: `pytest` 39 passed + 1 skipped (test LLM thật); chạy riêng `RUN_LLM_TESTS=1 ... -k live` với
+  gpt-5.6-luna thật: passed.
+- Việc cần làm tiếp theo: khi deploy, Render dùng `SUMMARY_MODEL=openai:gpt-5.6-luna` từ `render.yaml`; đảm bảo
+  tài khoản OpenAI có quyền dùng model này.
+- Vấn đề đã biết: số liệu thời gian/giá đo trên 1 transcript ngắn, transcript 1–2 giờ sẽ chậm hơn (vài chục giây).

@@ -34,7 +34,7 @@ Tắt hẳn khi không dùng: `npm run db:stop` (dữ liệu vẫn được gi�
 Chỉ cần làm một lần sau khi `.env` được tạo: điền
 - `SONIOX_API_KEY` — https://console.soniox.com → **API Keys**. Key này chỉ nằm ở backend; trình duyệt chỉ nhận
   Temporary API Key ngắn hạn qua `POST /api/temporary-key`.
-- `OPENAI_API_KEY` — cho nút "Tóm tắt" (`SUMMARY_MODEL=openai:gpt-5.4-mini`).
+- `OPENAI_API_KEY` — cho nút "Tóm tắt" (`SUMMARY_MODEL=openai:gpt-5.6-luna`).
 - `DATABASE_URL` đã điền sẵn giá trị Supabase local (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`),
   không cần sửa. Bảng dữ liệu được backend tự tạo khi khởi động.
 
@@ -74,6 +74,12 @@ Test chạy trên Postgres thật của Supabase local (cần `npx supabase star
 
 ```bash
 cd server && .venv/Scripts/python -m pytest      # hoặc ở gốc repo (Windows): npm run test:server
+```
+
+Test không gọi Soniox/OpenAI thật. Muốn thử tóm tắt bằng model thật (dùng `OPENAI_API_KEY` trong `.env`, tốn phí vài xu):
+
+```bash
+cd server && RUN_LLM_TESTS=1 .venv/Scripts/python -m pytest tests/test_summary_agent.py -k live
 ```
 
 ## Deploy miễn phí

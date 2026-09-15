@@ -20,7 +20,7 @@ services:
       - key: ALLOWED_ORIGINS # vd: https://notewave.vercel.app
         sync: false
       - key: SUMMARY_MODEL
-        value: openai:gpt-5.4-mini
+        value: openai:gpt-5.6-luna
       - key: OPENAI_API_KEY
         sync: false
       - key: PUBLIC_BASE_URL # vd: https://notewave-api.onrender.com (bật webhook Soniox)

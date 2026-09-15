@@ -93,6 +93,12 @@ Ghi chú:
   vẽ tiêu đề từng phần. `source` của phiên gộp = `source` của phiên đầu tiên (KHÔNG thêm giá trị mới).
   Bản gốc: `delete_originals=false` → đặt `archived_at` + `merged_into_id` (khôi phục được);
   `true` → xoá vĩnh viễn.
+- **Tóm tắt AI** (`services/summary_agent.py`): model mặc định `openai:gpt-5.6-luna` (quyết định 2026-09-15 —
+  người dùng chọn; đo thực tế rẻ hơn gpt-5.4-mini ~3–4 lần, context 1.05M token). Luna mặc định bật reasoning;
+  để trống `SUMMARY_REASONING_EFFORT` (đo thử: `low` nhanh hơn ~2 lần nhưng tạo việc trùng lặp/sai thời hạn).
+  Prompt `INSTRUCTIONS` quy định: owner dạng "Tên (Người nói N)" khi suy ra chắc chắn tên, gộp việc trùng,
+  `due` chỉ khi có mốc cụ thể, `decisions` chỉ ghi điều đã chốt. Sửa prompt thì chạy lại test LLM thật:
+  `RUN_LLM_TESTS=1 pytest tests/test_summary_agent.py -k live` (tốn phí, mặc định bị skip).
 - **Sửa transcript:** export/summarize luôn đọc `segments` hiện tại trong DB (bản đã sửa). Tóm tắt lại
   sẽ đặt `summary_outdated=false`; không bao giờ tự động gọi LLM sau khi sửa.
 - **Migration:** chưa có Alembic. `db.init_db()` gọi `create_all` → `_add_missing_columns()` (tự
@@ -113,7 +119,8 @@ SONIOX_API_KEY=
 SONIOX_ASYNC_MODEL=      # mặc định stt-async-v5
 DATABASE_URL=            # BẮT BUỘC, luôn là Postgres của Supabase (xem cách lấy bên dưới)
 ALLOWED_ORIGINS=         # comma-separated, danh sách domain frontend được phép gọi API
-SUMMARY_MODEL=           # provider:model, mặc định openai:gpt-5.4-mini
+SUMMARY_MODEL=           # provider:model, mặc định openai:gpt-5.6-luna
+SUMMARY_REASONING_EFFORT= # tuỳ chọn, chỉ model OpenAI: none|low|medium|high; trống = mặc định của model
 OPENAI_API_KEY=          # (hoặc ANTHROPIC_API_KEY / GEMINI_API_KEY tuỳ SUMMARY_MODEL)
 PUBLIC_BASE_URL=         # URL public của backend; có giá trị -> đăng ký webhook Soniox
 SONIOX_WEBHOOK_SECRET=   # Soniox gửi "Authorization: Bearer <secret>" khi gọi webhook

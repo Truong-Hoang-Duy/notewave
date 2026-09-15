@@ -120,7 +120,7 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
    | `OPENAI_API_KEY` | key OpenAI |
    | `PUBLIC_BASE_URL` | `https://notewave-api.onrender.com` — sẽ kiểm tra lại ở bước 3.7 |
 
-   Các biến còn lại đã có sẵn trong `render.yaml`: `PYTHON_VERSION=3.12.8`, `SUMMARY_MODEL=openai:gpt-5.4-mini`,
+   Các biến còn lại đã có sẵn trong `render.yaml`: `PYTHON_VERSION=3.12.8`, `SUMMARY_MODEL=openai:gpt-5.6-luna`,
    `MAX_UPLOAD_MB=100`, `SONIOX_WEBHOOK_SECRET` (Render tự sinh chuỗi ngẫu nhiên).
 5. Bấm **Deploy Blueprint** (hoặc **Apply**).
 6. Mở service **notewave-api** → tab **Logs**, chờ build (lần đầu ~3–5 phút). Log thành công có:
@@ -225,7 +225,8 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | Frontend báo "Không kết nối được tới máy chủ", Network tab thấy request tới `notewave.vercel.app/api/...` | Thiếu/sai `VITE_API_BASE_URL` | Sửa biến trên Vercel rồi **Redeploy** |
 | Lần mở đầu tiên chờ lâu 30–60 giây | Render free ngủ sau 15 phút không có request | Bình thường. Muốn tránh: nâng gói Render hoặc dùng dịch vụ ping định kỳ `/api/health` |
 | Bấm ghi âm báo lỗi khoá tạm thời / `503` ở `/api/temporary-key` | Thiếu/sai `SONIOX_API_KEY` | Kiểm tra `/api/health` → `soniox_configured` phải `true` |
-| Tóm tắt báo "Không tạo được bản tóm tắt" (502) | Sai `OPENAI_API_KEY`, hết credit, hoặc sai `SUMMARY_MODEL` | Xem Render Logs dòng `Tóm tắt thất bại` để biết lỗi cụ thể |
+| Tóm tắt báo "Không tạo được bản tóm tắt" (502) | Sai `OPENAI_API_KEY`, hết credit, tài khoản chưa được dùng model, hoặc sai `SUMMARY_MODEL` | Xem Render Logs dòng `Tóm tắt thất bại` để biết lỗi cụ thể |
+| Tóm tắt chạy lâu (transcript rất dài) | `gpt-5.6-luna` mặc định bật reasoning | Chấp nhận được (~10 giây/buổi họp ngắn). Cần nhanh hơn: thêm biến `SUMMARY_REASONING_EFFORT=low` trên Render (đổi lại chất lượng việc cần làm kém hơn) |
 | Upload xong nhưng Render Logs không có `POST /api/webhooks/soniox` | `PUBLIC_BASE_URL` sai (không trùng URL Render) | Sửa `PUBLIC_BASE_URL` (mục 3.7). App vẫn chạy nhờ polling khi đang mở trang |
 | Upload file lớn báo lỗi / timeout | File quá lớn cho Render free (RAM 512MB, mạng) | Dùng file ≤ 100MB; nén sang m4a/mp3 trước khi tải lên |
 | Điện thoại không hỏi quyền micro | Trình duyệt chặn quyền trước đó | Cài đặt trang (biểu tượng ổ khoá) → cho phép Micro, tải lại trang |
