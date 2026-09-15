@@ -1,0 +1,103 @@
+@import 'tailwindcss';
+
+/*
+ * Hệ thống thiết kế NoteWave
+ * - Nền giấy ấm (paper) + mực tối (ink) để đọc transcript dài không mỏi mắt.
+ * - Một màu thương hiệu duy nhất (brand – xanh lục sâu), đỏ (rec) chỉ dành cho trạng thái ghi âm/xoá.
+ */
+@theme {
+  --font-sans: 'Be Vietnam Pro', ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  --color-paper: #f6f4ef;
+  --color-surface: #ffffff;
+  --color-sunken: #efece5;
+  --color-ink: #1d1b18;
+  --color-ink-soft: #45413a;
+  --color-muted: #7a746a;
+  --color-line: #e7e2d8;
+  --color-line-strong: #d3ccbf;
+
+  --color-brand-50: #edf5f1;
+  --color-brand-100: #d5e8df;
+  --color-brand-200: #aed2c2;
+  --color-brand-500: #3d8069;
+  --color-brand-600: #2f6554;
+  --color-brand-700: #264f43;
+
+  --color-rec: #dc3d43;
+  --color-rec-600: #c3343a;
+  --color-rec-soft: #fcebeb;
+  --color-warn: #a86510;
+  --color-warn-soft: #fbf1e1;
+
+  --shadow-card: 0 1px 2px rgb(29 27 24 / 0.04), 0 1px 1px rgb(29 27 24 / 0.03);
+  --shadow-float: 0 12px 32px -12px rgb(29 27 24 / 0.22), 0 2px 6px rgb(29 27 24 / 0.06);
+
+  --animate-rec-pulse: rec-pulse 1.6s ease-in-out infinite;
+  --animate-fade-in: fade-in 0.22s ease-out both;
+  --animate-slide-up: slide-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-indeterminate: indeterminate 1.6s ease-in-out infinite;
+
+  @keyframes rec-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgb(220 61 67 / 0.45); }
+    50% { box-shadow: 0 0 0 10px rgb(220 61 67 / 0); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+    font-feature-settings: 'ss01';
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: var(--color-brand-100);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .skeleton {
+    background: linear-gradient(90deg, var(--color-sunken) 25%, #f7f5f0 50%, var(--color-sunken) 75%);
+    background-size: 200% 100%;
+    @apply animate-shimmer rounded-md;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

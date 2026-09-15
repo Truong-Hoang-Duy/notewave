@@ -1,0 +1,19 @@
+{
+  "name": "notewave-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node run-dev.js",
+    "start": "node run-dev.js",
+    "client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status",
+    "test:server": "cd server && .venv/Scripts/python -m pytest"
+  },
+  "devDependencies": {
+    "supabase": "^2.117.0"
+  }
+}

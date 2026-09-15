@@ -1,0 +1,108 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Chuẩn bị (deps + Docker + Supabase)",
+      "type": "shell",
+      "command": "node run-dev.js --prepare",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "notewave"
+      }
+    },
+    {
+      "label": "Backend (FastAPI)",
+      "type": "shell",
+      "command": ".venv\\Scripts\\python -m uvicorn app.main:app --reload --port 8000",
+      "windows": {
+        "command": ".venv\\Scripts\\python -m uvicorn app.main:app --reload --port 8000"
+      },
+      "osx": {
+        "command": ".venv/bin/python -m uvicorn app.main:app --reload --port 8000"
+      },
+      "linux": {
+        "command": ".venv/bin/python -m uvicorn app.main:app --reload --port 8000"
+      },
+      "options": {
+        "cwd": "${workspaceFolder}/server"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [
+          {
+            "regexp": ".",
+            "file": 1,
+            "location": 2,
+            "message": 3
+          }
+        ],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*Uvicorn running on.*",
+          "endsPattern": "^.*Application startup complete.*"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "notewave"
+      }
+    },
+    {
+      "label": "Frontend (Vite)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/client"
+      },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": [
+          {
+            "regexp": ".",
+            "file": 1,
+            "location": 2,
+            "message": 3
+          }
+        ],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*VITE.*ready in.*",
+          "endsPattern": "^.*Local:.*"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "notewave"
+      }
+    },
+    {
+      "label": "FE + BE",
+      "dependsOn": [
+        "Backend (FastAPI)",
+        "Frontend (Vite)"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run NoteWave (FE + BE)",
+      "dependsOn": [
+        "Chuẩn bị (deps + Docker + Supabase)",
+        "FE + BE"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
