@@ -2,7 +2,8 @@ import { X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 /** Khung hộp thoại dùng chung: bottom sheet trên mobile, hộp giữa màn hình trên desktop. */
-export default function Modal({ open, title, description, onClose, busy = false, size = 'md', children, footer }) {
+/** `fill`: nội dung tự co vừa chiều cao còn lại của hộp thoại (không cuộn) — dùng cho xem trước ảnh/PDF. */
+export default function Modal({ open, title, description, onClose, busy = false, size = 'md', fill = false, children, footer }) {
   const panelRef = useRef(null)
   const closeRef = useRef(onClose)
   const busyRef = useRef(busy)
@@ -26,13 +27,14 @@ export default function Modal({ open, title, description, onClose, busy = false,
   }, [open])
 
   if (!open) return null
-  const width = size === 'lg' ? 'sm:max-w-xl' : 'sm:max-w-md'
+  const width = { xl: 'sm:max-w-4xl', lg: 'sm:max-w-xl' }[size] ?? 'sm:max-w-md'
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div className="absolute inset-0 animate-fade-in bg-ink/40 backdrop-blur-[2px]" onClick={() => !busy && onClose()} />
+      {/* `fill`: panel cao cố định 92svh để phần trăm chiều cao bên trong phân giải được (ảnh/PDF tự co vừa khung). */}
       <div
         ref={panelRef}
-        className={`relative flex max-h-[92svh] w-full ${width} animate-slide-up flex-col rounded-t-2xl bg-surface shadow-float sm:rounded-2xl`}
+        className={`relative flex w-full ${fill ? 'h-[92svh]' : 'max-h-[92svh]'} ${width} animate-slide-up flex-col rounded-t-2xl bg-surface shadow-float sm:rounded-2xl`}
       >
         <div className="flex items-start gap-3 border-b border-line px-5 pt-5 pb-4 sm:px-6">
           <div className="min-w-0 flex-1">
@@ -51,7 +53,9 @@ export default function Modal({ open, title, description, onClose, busy = false,
             <X className="size-4" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 sm:px-6">{children}</div>
+        <div data-modal-body className={`min-h-0 flex-1 px-5 py-4 sm:px-6 ${fill ? 'flex overflow-hidden' : 'overflow-y-auto'}`}>
+          {children}
+        </div>
         {footer && (
           <div className="flex flex-wrap justify-end gap-2 border-t border-line px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:px-6 sm:pb-4">
             {footer}

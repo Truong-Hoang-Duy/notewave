@@ -1,4 +1,4 @@
-import { CircleAlert, Loader2, RotateCw } from 'lucide-react'
+import { ChevronDown, CircleAlert, Loader2, RotateCw } from 'lucide-react'
 import { SOURCE_LABELS } from '../lib/format'
 import { SOURCE_META } from '../lib/sources'
 
@@ -90,6 +90,26 @@ export function InlineAlert({ tone = 'error', children, action }) {
       <div className="min-w-0 flex-1 leading-relaxed">{children}</div>
       {action}
     </div>
+  )
+}
+
+/**
+ * Nút thu gọn / mở rộng một khối (accordion) — chỉ hiện dưới breakpoint `xl`; từ `xl` hai khối đã nằm 2 cột
+ * riêng nên luôn mở.
+ */
+export function CollapseToggle({ collapsed, onToggle, controls, label }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-controls={controls}
+      aria-label={`${collapsed ? 'Mở rộng' : 'Thu gọn'} ${label}`}
+      title={collapsed ? 'Mở rộng' : 'Thu gọn'}
+      className="-my-1 -mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-sunken hover:text-ink xl:hidden"
+    >
+      <ChevronDown className={`size-4 transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`} />
+    </button>
   )
 }
 

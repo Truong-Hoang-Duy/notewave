@@ -119,3 +119,42 @@ def test_health_reports_database_error(client, monkeypatch):
     body = res.json()
     assert body["status"] == "degraded" and body["database"] == "error"
     assert body["database_error"] == "OperationalError"
+
+
+def test_list_sort_options(client, make_session):
+    from app import db as app_db
+    from app.models.session import NoteSession
+    from sqlmodel import Session
+
+    older = make_session("zebra", "live", [seg("1", "a", 0, 1000)], duration_ms=5000)
+    middle = make_session("Ảnh tuần", "upload", [seg(None, "b", 0, 1000)], duration_ms=60000)
+    newest = make_session("bản ghi", "live", [seg("1", "c", 0, 1000)])  # không có thời lượng
+
+    titles = lambda **params: [i["title"] for i in client.get("/api/sessions", params=params).json()["items"]]
+
+    assert titles() == ["bản ghi", "Ảnh tuần", "zebra"]  # mặc định: mới nhất trước
+    assert titles(sort="created_desc") == ["bản ghi", "Ảnh tuần", "zebra"]
+    assert titles(sort="created_asc") == ["zebra", "Ảnh tuần", "bản ghi"]
+    # Sắp xếp theo tên không phân biệt hoa/thường, theo bảng chữ cái tiếng Việt (collation của Postgres)
+    assert titles(sort="title_asc") == ["Ảnh tuần", "bản ghi", "zebra"]
+    assert titles(sort="title_desc") == ["zebra", "bản ghi", "Ảnh tuần"]
+    # Thời lượng: phiên không có thời lượng (vd. quét tài liệu) luôn xếp cuối
+    assert titles(sort="duration_desc") == ["Ảnh tuần", "zebra", "bản ghi"]
+    assert titles(sort="duration_asc") == ["zebra", "Ảnh tuần", "bản ghi"]
+
+    # Sửa phiên cũ nhất -> nó lên đầu khi sắp theo lần sửa gần nhất
+    client.patch(f"/api/sessions/{older['id']}", json={"title": "zebra (đã sửa)"})
+    assert titles(sort="updated_desc")[0] == "zebra (đã sửa)"
+
+    assert titles(sort="title_asc", source="live") == ["bản ghi", "zebra (đã sửa)"]  # kết hợp bộ lọc
+    assert client.get("/api/sessions", params={"sort": "khong-co"}).status_code == 422
+
+    # Phân trang giữ đúng thứ tự đã sắp
+    page = client.get("/api/sessions", params={"sort": "title_asc", "limit": 2}).json()
+    assert [i["title"] for i in page["items"]] == ["Ảnh tuần", "bản ghi"] and page["total"] == 3
+    page2 = client.get("/api/sessions", params={"sort": "title_asc", "limit": 2, "offset": 2}).json()
+    assert [i["title"] for i in page2["items"]] == ["zebra (đã sửa)"]
+    assert middle["id"] and newest["id"]
+
+    with Session(app_db.engine) as db:
+        assert db.get(NoteSession, older["id"]).title == "zebra (đã sửa)"

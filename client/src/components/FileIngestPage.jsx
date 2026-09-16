@@ -130,6 +130,7 @@ export default function FileIngestPage({ config, onOpenHistory, onOpenSession })
           fileIconTone={config.fileIconTone}
           reorderable={config.reorderable}
           thumbnails={config.thumbnails}
+          preview={config.preview}
           camera={config.camera}
         >
           <div className="flex flex-wrap items-center justify-between gap-3">

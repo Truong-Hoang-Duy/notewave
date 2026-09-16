@@ -9,7 +9,7 @@ import UploadPage from './pages/UploadPage'
 
 const TABS = [
   { id: 'live', label: 'Ghi âm trực tiếp', short: 'Ghi âm', icon: Mic },
-  { id: 'upload', label: 'Tải file lên', short: 'Tải lên', icon: FileAudio },
+  { id: 'upload', label: 'Tải audio', short: 'Audio', icon: FileAudio },
   { id: 'scan', label: 'Quét tài liệu', short: 'Quét', icon: ScanText },
   { id: 'history', label: 'Lịch sử', short: 'Lịch sử', icon: History },
 ]

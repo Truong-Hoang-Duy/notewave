@@ -32,7 +32,7 @@ import SummaryPanel from './SummaryPanel'
 import { useToast } from './Toast'
 import TranscriptEditor from './TranscriptEditor'
 import TranscriptView from './TranscriptView'
-import { Button, Card, EmptyState, ErrorState, InlineAlert, SourceBadge } from './ui'
+import { Button, Card, CollapseToggle, EmptyState, ErrorState, InlineAlert, SourceBadge } from './ui'
 
 // react-markdown + remark-gfm chỉ cần cho phiên quét tài liệu -> tách chunk, tải khi mở phiên OCR.
 const OcrDocumentView = lazy(() => import('./OcrDocumentView'))
@@ -244,6 +244,10 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
   const [deciding, setDeciding] = useState(null) // null | 'all' | id đề xuất
   const fitRef = useViewportFit()
   const [transcriptScrolled, onTranscriptScroll] = useScrolled()
+  // Thu gọn từng khối (chỉ có tác dụng dưới xl — từ xl hai khối nằm 2 cột riêng). Mặc định: nội dung mở,
+  // tóm tắt đóng để trên điện thoại không phải cuộn hết transcript mới tới phần khác.
+  const [collapsed, setCollapsed] = useState({ content: false, summary: true })
+  const toggle = (block) => setCollapsed((c) => ({ ...c, [block]: !c[block] }))
 
   useEffect(() => {
     const controller = new AbortController()
@@ -488,7 +492,10 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
               variant="ghost"
               icon={Sparkles}
               className="xl:hidden"
-              onClick={() => document.getElementById('ai-summary')?.scrollIntoView({ behavior: 'smooth' })}
+              onClick={() => {
+                setCollapsed((c) => ({ ...c, summary: false }))
+                requestAnimationFrame(() => document.getElementById('ai-summary')?.scrollIntoView({ behavior: 'smooth' }))
+              }}
             >
               {session.summary ? 'Xem tóm tắt' : 'Tóm tắt AI'}
             </Button>
@@ -548,8 +555,15 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
                 transcriptScrolled ? 'shadow-[0_10px_18px_-14px_rgb(29_27_24/0.28)]' : ''
               }`}
             >
-              <h2 className="text-sm font-semibold text-ink">{isOcr ? 'Nội dung tài liệu' : 'Transcript'}</h2>
-              {speakers.length > 0 && (
+              <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold text-ink">
+                {isOcr ? 'Nội dung tài liệu' : 'Transcript'}
+                {collapsed.content && (
+                  <span className="text-[12.5px] font-normal text-muted xl:hidden">
+                    {isOcr ? `${session.segments.length} trang` : `${session.segments.length} đoạn`}
+                  </span>
+                )}
+              </h2>
+              {speakers.length > 0 && !collapsed.content && (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted">
                   <Users className="size-3.5" />
                   {speakers.map((sp) => (
@@ -560,9 +574,21 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
                   ))}
                 </div>
               )}
-              {isOcr && <OcrNotices ocr={session.ocr} onOpen={() => openCorrections()} />}
+              <CollapseToggle
+                collapsed={collapsed.content}
+                onToggle={() => toggle('content')}
+                controls="session-content-body"
+                label={isOcr ? 'nội dung tài liệu' : 'transcript'}
+              />
+              {isOcr && !collapsed.content && <OcrNotices ocr={session.ocr} onOpen={() => openCorrections()} />}
             </div>
-            <div onScroll={onTranscriptScroll} className="scroll-area px-5 py-6 sm:px-7 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain">
+            <div
+              id="session-content-body"
+              onScroll={onTranscriptScroll}
+              className={`scroll-area px-5 py-6 sm:px-7 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain ${
+                collapsed.content ? 'hidden xl:block' : ''
+              }`}
+            >
               {editing ? (
                 <TranscriptEditor
                   initialSegments={session.segments}
@@ -595,6 +621,8 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
 
           <aside id="ai-summary" className="scroll-mt-24 xl:flex xl:min-h-0 xl:flex-col">
             <SummaryPanel
+              collapsed={collapsed.summary}
+              onToggleCollapse={() => toggle('summary')}
               title={session.title}
               summary={session.summary}
               outdated={session.summary_outdated}

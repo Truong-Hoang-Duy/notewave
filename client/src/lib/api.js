@@ -79,10 +79,11 @@ export const api = {
   health: () => request('/api/health'),
   getTemporaryKey: () => request('/api/temporary-key', { method: 'POST' }),
 
-  listSessions: ({ q, source, groupId, archived, signal } = {}) => {
+  listSessions: ({ q, source, groupId, archived, sort, signal } = {}) => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (source) params.set('source', source)
+    if (sort) params.set('sort', sort)
     if (groupId) params.set('group_id', groupId)
     if (archived) params.set('archived', 'true')
     const qs = params.toString()

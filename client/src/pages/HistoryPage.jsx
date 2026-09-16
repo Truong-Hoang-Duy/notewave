@@ -9,6 +9,7 @@ import {
   FolderOpen,
   History,
   Layers,
+  ArrowDownUp,
   Loader2,
   Mic,
   ScanText,
@@ -29,6 +30,28 @@ import { groupActions, useGroups } from '../hooks/useGroups'
 import { api } from '../lib/api'
 import { formatDateTime, formatDuration, SOURCE_LABELS } from '../lib/format'
 import { SOURCE_META } from '../lib/sources'
+
+// Sắp xếp do backend làm (ORDER BY) để đúng với phân trang; lựa chọn được nhớ giữa các lần mở trang.
+const SORT_OPTIONS = [
+  ['created_desc', 'Mới nhất trước'],
+  ['created_asc', 'Cũ nhất trước'],
+  ['title_asc', 'Tên A → Z'],
+  ['title_desc', 'Tên Z → A'],
+  ['updated_desc', 'Sửa gần đây nhất'],
+  ['duration_desc', 'Thời lượng dài nhất'],
+  ['duration_asc', 'Thời lượng ngắn nhất'],
+]
+const SORT_KEY = 'notewave:history-sort'
+const DEFAULT_SORT = 'created_desc'
+
+function readSort() {
+  try {
+    const saved = localStorage.getItem(SORT_KEY)
+    return SORT_OPTIONS.some(([value]) => value === saved) ? saved : DEFAULT_SORT
+  } catch {
+    return DEFAULT_SORT
+  }
+}
 
 const SOURCE_FILTERS = [
   { value: '', label: 'Tất cả', short: 'Tất cả' },
@@ -225,6 +248,7 @@ export default function HistoryPage({ onOpen, onNavigate }) {
   const [source, setSource] = useState('')
   const [groupId, setGroupId] = useState('')
   const [archived, setArchived] = useState(false)
+  const [sort, setSort] = useState(readSort)
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -242,7 +266,7 @@ export default function HistoryPage({ onOpen, onNavigate }) {
     setLoading(true)
     setError(null)
     api
-      .listSessions({ q: debouncedQuery, source, groupId, archived, signal: controller.signal })
+      .listSessions({ q: debouncedQuery, source, groupId, archived, sort, signal: controller.signal })
       .then((res) => {
         setData(res)
         setLoading(false)
@@ -253,7 +277,15 @@ export default function HistoryPage({ onOpen, onNavigate }) {
         setLoading(false)
       })
     return () => controller.abort()
-  }, [debouncedQuery, source, groupId, archived, reloadKey])
+  }, [debouncedQuery, source, groupId, archived, sort, reloadKey])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SORT_KEY, sort)
+    } catch {
+      /* ignore */
+    }
+  }, [sort])
 
   // Bộ lọc thay đổi -> bỏ chọn để tránh thao tác lên phiên không còn nhìn thấy.
   useEffect(() => {
@@ -380,9 +412,27 @@ export default function HistoryPage({ onOpen, onNavigate }) {
               ['', 'Tất cả nhóm'],
               ['none', 'Chưa phân nhóm'],
             ]}
-            className="sm:w-60"
+            className="sm:w-52"
             ariaLabel="Lọc theo nhóm"
           />
+          <div className="relative sm:w-52">
+            <ArrowDownUp className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value)}
+              aria-label="Sắp xếp danh sách"
+              className="h-10 w-full cursor-pointer appearance-none truncate rounded-xl border border-line bg-surface pr-9 pl-9 text-[13px] font-medium text-ink-soft shadow-card outline-none transition hover:border-line-strong focus:border-brand-500 focus:ring-4 focus:ring-brand-100"
+            >
+              {SORT_OPTIONS.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <svg className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-muted" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z" clipRule="evenodd" />
+            </svg>
+          </div>
         </div>
       </div>
 
@@ -424,7 +474,7 @@ export default function HistoryPage({ onOpen, onNavigate }) {
                 Bắt đầu ghi âm
               </Button>
               <Button icon={FileAudio} onClick={() => onNavigate('upload')}>
-                Tải file lên
+                Tải audio
               </Button>
               <Button icon={ScanText} onClick={() => onNavigate('scan')}>
                 Quét tài liệu

@@ -1,6 +1,8 @@
-import { ArrowDown, ArrowUp, Camera, GripVertical, UploadCloud, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, Eye, GripVertical, UploadCloud, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { formatBytes } from '../lib/format'
+import { isPreviewable } from '../lib/files'
+import FilePreviewDialog from './FilePreviewDialog'
 import { Button, InlineAlert } from './ui'
 
 let nextId = 0
@@ -23,6 +25,7 @@ export default function FilePicker({
   reorderable = false,
   camera = false,
   thumbnails = false,
+  preview = false,
   disabled = false,
   children,
 }) {
@@ -32,6 +35,7 @@ export default function FilePicker({
   const [rejected, setRejected] = useState([]) // [{ name, reason }]
   const [dragIndex, setDragIndex] = useState(null)
   const [overIndex, setOverIndex] = useState(null)
+  const [previewIndex, setPreviewIndex] = useState(null) // vị trí file đang xem trước
   const previews = usePreviews(items, thumbnails)
 
   const add = (fileList) => {
@@ -64,7 +68,9 @@ export default function FilePicker({
 
   const remove = (id) => {
     setRejected([])
-    onChange(items.filter((i) => i.id !== id))
+    const next = items.filter((i) => i.id !== id)
+    if (previewIndex !== null) setPreviewIndex(next.length ? Math.min(previewIndex, next.length - 1) : null)
+    onChange(next)
   }
 
   const openPicker = () => !disabled && inputRef.current?.click()
@@ -204,17 +210,49 @@ export default function FilePicker({
                 {reorderable && (
                   <span className="w-5 shrink-0 text-center font-mono text-[12px] text-muted tabular-nums">{index + 1}</span>
                 )}
-                {previews.get(item.id) ? (
-                  <img src={previews.get(item.id)} alt="" className="size-11 shrink-0 rounded-lg border border-line object-cover" />
-                ) : (
-                  <div className={`grid size-11 shrink-0 place-items-center rounded-lg ${fileIconTone}`}>
-                    <FileIcon className="size-5" />
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-ink">{item.file.name}</p>
-                  <p className="text-[12.5px] text-muted">{formatBytes(item.file.size)}</p>
-                </div>
+                {(() => {
+                  const canPreview = preview && !disabled && isPreviewable(item.file)
+                  const thumb = previews.get(item.id) ? (
+                    <img src={previews.get(item.id)} alt="" className="size-11 shrink-0 rounded-lg border border-line object-cover" />
+                  ) : (
+                    <div className={`grid size-11 shrink-0 place-items-center rounded-lg ${fileIconTone}`}>
+                      <FileIcon className="size-5" />
+                    </div>
+                  )
+                  const info = (
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="truncate text-sm font-medium text-ink">{item.file.name}</p>
+                      <p className="text-[12.5px] text-muted">
+                        {formatBytes(item.file.size)}
+                        {canPreview && <span className="ml-1.5 text-brand-600 group-hover/file:underline">· xem trước</span>}
+                      </p>
+                    </div>
+                  )
+                  if (!canPreview) {
+                    return (
+                      <>
+                        {thumb}
+                        {info}
+                      </>
+                    )
+                  }
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewIndex(index)}
+                      title={`Xem trước ${item.file.name}`}
+                      className="group/file flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left"
+                    >
+                      <span className="relative shrink-0">
+                        {thumb}
+                        <span className="absolute inset-0 grid place-items-center rounded-lg bg-ink/45 opacity-0 transition-opacity group-hover/file:opacity-100">
+                          <Eye className="size-4 text-white" />
+                        </span>
+                      </span>
+                      {info}
+                    </button>
+                  )
+                })()}
                 <div className="flex shrink-0 items-center">
                   {reorderable && items.length > 1 && (
                     <>
@@ -229,6 +267,17 @@ export default function FilePicker({
           </ol>
           {children && <div className="border-t border-line bg-paper/60 px-4 py-3">{children}</div>}
         </div>
+      )}
+
+      {preview && (
+        <FilePreviewDialog
+          items={items}
+          index={previewIndex}
+          previews={previews}
+          onIndexChange={setPreviewIndex}
+          onRemove={remove}
+          onClose={() => setPreviewIndex(null)}
+        />
       )}
     </div>
   )

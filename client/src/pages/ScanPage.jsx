@@ -32,6 +32,7 @@ const CONFIG = {
   fileIconTone: 'bg-[#e5f0f6] text-[#27709f]',
   camera: true,
   thumbnails: true,
+  preview: true,
   reorderable: true,
   batchHint: (count) =>
     count > 1 ? `${count} file sẽ được gộp thành 1 tài liệu theo thứ tự trên (tối đa 1000 trang).` : 'Tối đa 1000 trang.',

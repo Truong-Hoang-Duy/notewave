@@ -4,7 +4,7 @@ import { useScrolled } from '../hooks/useScrolled'
 import { copyText } from '../lib/clipboard'
 import { summaryToMarkdown } from '../lib/summary'
 import { useToast } from './Toast'
-import { Button, Card, InlineAlert } from './ui'
+import { Button, Card, CollapseToggle, InlineAlert } from './ui'
 
 function Section({ icon: Icon, title, children }) {
   return (
@@ -78,7 +78,7 @@ function CopyButton({ getText }) {
   )
 }
 
-export default function SummaryPanel({ title, summary, outdated, loading, error, disabled, onSummarize }) {
+export default function SummaryPanel({ title, summary, outdated, loading, error, disabled, collapsed = false, onToggleCollapse, onSummarize }) {
   const [scrolled, onScroll] = useScrolled()
 
   if (loading) {
@@ -141,9 +141,14 @@ export default function SummaryPanel({ title, summary, outdated, loading, error,
           <Button variant="ghost" size="sm" icon={RotateCw} onClick={onSummarize} disabled={disabled} title="Tạo lại bản tóm tắt">
             Tạo lại
           </Button>
+          {onToggleCollapse && <CollapseToggle collapsed={collapsed} onToggle={onToggleCollapse} controls="ai-summary-body" label="tóm tắt AI" />}
         </div>
       </div>
-      <div onScroll={onScroll} className="scroll-area px-5 pt-1 pb-5 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain">
+      <div
+        id="ai-summary-body"
+        onScroll={onScroll}
+        className={`scroll-area px-5 pt-1 pb-5 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain ${collapsed ? 'hidden xl:block' : ''}`}
+      >
         {error && (
           <div className="mb-4">
             <InlineAlert>{error}</InlineAlert>

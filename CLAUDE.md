@@ -21,7 +21,8 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 - **Frontend:** React 19 + Vite, Tailwind CSS v4 (`@tailwindcss/vite`, token màu/font khai báo
   trong `@theme` ở `client/src/index.css`). Thư mục `/client`. Thư viện phụ đã được duyệt:
   `@soniox/client` (SDK chính thức — ghi âm micro + WebSocket real-time), `lucide-react` (icon),
-  `react-markdown` + `remark-gfm` (render Markdown OCR — chunk lazy, chỉ tải khi mở phiên OCR).
+  `react-markdown` + `remark-gfm` (render Markdown OCR — chunk lazy, chỉ tải khi mở phiên OCR),
+  `pdfjs-dist` (xem trước PDF trước khi tải lên — chunk lazy, chỉ tải khi mở preview một file PDF).
   Điều hướng dùng hash router tự viết (`#/live`, `#/upload`, `#/scan`, `#/history/<id>`), không dùng react-router.
 - **Backend:** Python, FastAPI (web server) + PydanticAI (agent tóm tắt / rà soát OCR bằng LLM). Thư mục `/server`.
   Thư viện phụ đã được duyệt: `mistralai` (SDK Mistral OCR), `pypdf` (đếm trang PDF trước khi OCR).
@@ -93,7 +94,11 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 Ghi chú:
 - `GET /api/sessions` hỗ trợ `?q=` (tìm theo tiêu đề/nội dung), `?source=live|upload|ocr`,
   `?group_id=<id>|none` (`none` = chưa phân nhóm), `?archived=true` (chỉ phiên đã lưu trữ; mặc định
-  loại trừ), `limit`, `offset`. Session có `status`: `processing` | `completed` | `failed`.
+  loại trừ), `limit`, `offset`, và `?sort=` (mặc định `created_desc`):
+  `created_desc` | `created_asc` | `title_asc` | `title_desc` | `updated_desc` | `duration_desc` | `duration_asc`.
+  Sắp xếp LUÔN làm ở DB (ORDER BY trong `routers/sessions.py::_SORTS`) để đúng với `limit`/`offset`, không sort ở
+  frontend. Tiêu đề so sánh qua `func.lower` (không phân biệt hoa/thường, thứ tự theo collation Postgres);
+  `duration_ms` null (phiên OCR) luôn xếp cuối. Session có `status`: `processing` | `completed` | `failed`.
 - Logic hoàn tất upload dùng chung cho polling và webhook nằm ở `services/upload_processing.py` (idempotent).
 - **Nhóm tài liệu:** model `SessionGroup` (bảng `session_groups`, `models/group.py`). `NoteSession.group_id`
   trỏ tới nhóm (mỗi phiên thuộc tối đa 1 nhóm). Không khai báo FK ở mức DB; router tự gỡ `group_id`
@@ -191,16 +196,35 @@ Lưu ý: pydantic-settings không tự đưa giá trị file `.env` vào `os.env
   luồng Quét tài liệu) — dùng để frontend gắn nhãn/icon/màu phân biệt (`lib/format.js::SOURCE_LABELS`,
   `lib/sources.js::SOURCE_META`). Phiên gộp vẫn dùng 1 trong các giá trị này (theo phiên đầu);
   nhận biết phiên gộp qua `merge_sources` (UI hiện nhãn "Gộp từ N phiên").
+- Toàn app được bọc `components/ErrorBoundary.jsx` (trong `main.jsx`): lỗi JS của một component sẽ hiện thông báo
+  + nút "Tải lại trang" thay vì trang trắng. Cleanup trong `useEffect` không được ném lỗi ra ngoài.
 - Frontend: state nhóm dùng chung qua `client/src/hooks/useGroups.js` (`useGroups()` + `groupActions`)
   — tạo/đổi tên/xoá/gán nhóm luôn đi qua đây để mọi màn hình cập nhật đồng bộ. Hộp thoại dùng
   `components/Modal.jsx`; xác nhận xoá dùng `components/ConfirmDialog.jsx`.
-- Chọn file (nhiều file, kéo thả, ảnh thu nhỏ, sắp xếp thứ tự, chụp ảnh) dùng chung `components/FilePicker.jsx`.
+- Chọn file (nhiều file, kéo thả, ảnh thu nhỏ, sắp xếp thứ tự, chụp ảnh, XEM TRƯỚC) dùng chung
+  `components/FilePicker.jsx` — bật preview bằng prop `preview` (hiện chỉ "Quét tài liệu": ảnh/PDF; file ghi âm
+  không cần). Preview mở trong `components/FilePreviewDialog.jsx` (Modal `size="xl"` + `fill`: panel cao cố định
+  `92svh` để phần trăm chiều cao bên trong phân giải được).
+  - **Ảnh:** dùng lại object URL của thumbnail, `max-h-full max-w-full object-contain` → vừa khung, KHÔNG cuộn.
+  - **PDF** (`components/PdfPreview.jsx`, chunk lazy): cuộn qua tất cả các trang như trình đọc PDF — mỗi trang chỉ
+    được vẽ khi tới gần tầm nhìn (IntersectionObserver, `rootMargin` 600px) và canvas bị giải phóng khi cuộn ra xa,
+    nên PDF dài không phình bộ nhớ; có chỉ báo "Trang x / N", nút chuyển trang và 2 chế độ: "vừa cả trang" (mặc
+    định) / "vừa chiều ngang" (chữ to hơn, cuộn trong từng trang).
+  - Chọn pdf.js thay vì nhúng `<iframe>` để giao diện giống nhau trên mọi trình duyệt (Safari iOS không nhúng PDF
+    inline). Hai cái bẫy của pdf.js v6 đã gặp: (1) worker phải tạo bằng
+    `new Worker(new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url), { type: 'module' })` — đặt
+    `GlobalWorkerOptions.workerSrc` bằng URL sẽ tạo classic worker và lỗi với bản dist ES module; (2) chỉ
+    `PDFDocumentLoadingTask` mới có `destroy()` (v6 đã bỏ `PDFDocumentProxy.destroy()`) — gọi nhầm sẽ ném lỗi
+    trong cleanup của effect và làm React gỡ sạch cây component (trang trắng).
   "Quét tài liệu" (`pages/ScanPage.jsx`) = `components/FileIngestPage.jsx`: nhiều file → 1 request → 1 phiên.
   "Tải file lên" (`pages/UploadPage.jsx`) = hàng đợi: mỗi file 1 request / 1 phiên, tối đa 2 file tải song song, mỗi
   dòng tự poll trạng thái; phiên đã tạo lưu localStorage `notewave:active-uploads` để khôi phục sau khi tải lại trang.
   Phiên OCR hiển thị bằng `OcrDocumentView`, duyệt đề xuất sửa bằng `OcrCorrectionsDialog`.
 - Layout: khung nội dung `max-w-[96rem]`; trang chi tiết phiên cho transcript chiếm phần lớn chiều
   ngang, tóm tắt AI là sidebar 20rem từ breakpoint `xl`, dưới `xl` tóm tắt nằm dưới transcript.
+  Dưới `xl`, mỗi khối (Transcript / Nội dung tài liệu và Tóm tắt bằng AI) có nút thu gọn `ui.jsx::CollapseToggle`
+  (state cục bộ của `SessionDetail`, mặc định nội dung mở + tóm tắt đóng; nút "Xem tóm tắt" trên toolbar tự mở
+  khối tóm tắt rồi cuộn tới). Từ `xl` nút thu gọn bị ẩn và hai khối luôn mở.
   Form (ghi âm, tải lên) giới hạn `max-w-3xl`, danh sách Lịch sử `max-w-4xl`.
 - Khi thêm agent PydanticAI mới, model provider luôn cấu hình qua biến môi trường
   (dạng chuỗi kiểu `provider:model-name`, ví dụ `anthropic:claude-sonnet-4-6`), không

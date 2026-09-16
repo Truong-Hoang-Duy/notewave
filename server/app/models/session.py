@@ -15,6 +15,8 @@ from app.models.summary import MeetingSummary
 
 SessionSource = Literal["live", "upload", "ocr"]
 SessionStatus = Literal["processing", "completed", "failed"]
+# Kiểu sắp xếp danh sách phiên (ORDER BY ở DB để đúng với phân trang limit/offset).
+SessionSort = Literal["created_desc", "created_asc", "title_asc", "title_desc", "updated_desc", "duration_desc", "duration_asc"]
 
 
 class TranscriptSegment(BaseModel):

@@ -545,3 +545,136 @@
   - Quét nhiều file: file tạm nằm trên đĩa tạm của Render (mất khi restart — cùng cơ chế `failed` sau 10 phút như trước).
   - Mỗi dòng đang xử lý trong hàng đợi poll trạng thái riêng mỗi 3 giây (tối đa 20 dòng) — chấp nhận được với Render free.
 
+## [2026-09-16] — Sắp xếp Lịch sử, xem trước file trước khi tải lên, thu gọn khối trên màn hình nhỏ + nghiên cứu công thức toán
+- Quyết định (đã hỏi người dùng): preview PDF bằng **pdf.js** (`pdfjs-dist`, vẽ từng trang ra canvas) thay vì nhúng
+  `<iframe>` — giao diện giống nhau mọi trình duyệt, Safari iOS cũng xem được (đổi lại: thêm thư viện, chunk lazy
+  ~432 KB / 130 KB gzip + worker 1,26 MB chỉ tải khi mở preview PDF); **không** preview cho file ghi âm; được phép gọi
+  Mistral OCR thật để nghiên cứu công thức toán.
+- Đã làm:
+  1. **Sắp xếp danh sách Lịch sử** (`?sort=`, ORDER BY ở DB để đúng với `limit`/`offset`):
+     - Backend: `SessionSort` trong `models/session.py`; bảng `_SORTS` trong `routers/sessions.py` với 7 kiểu —
+       `created_desc` (mặc định), `created_asc`, `title_asc`, `title_desc`, `updated_desc`, `duration_desc`,
+       `duration_asc`. Tiêu đề so sánh `func.lower` (không phân biệt hoa/thường, thứ tự chữ cái theo collation
+       Postgres — "Ảnh tuần" đứng trước "bản ghi"); `duration_ms` null (phiên OCR) luôn xếp cuối (`nullslast`);
+       luôn kèm `created_at` làm tiêu chí phụ để phân trang ổn định; giá trị lạ → 422.
+     - Frontend: dropdown "Sắp xếp" cạnh bộ lọc nhóm trong `HistoryPage`, nhớ lựa chọn qua localStorage
+       `notewave:history-sort` (bộ lọc `source`/`group_id` vẫn là state tạm như trước — sort là *tuỳ chọn hiển thị*
+       nên đáng nhớ, còn bộ lọc thì không). Đổi từ khoá / bộ lọc không làm mất kiểu sắp xếp.
+  2. **Xem trước file trước khi tải lên** (dùng chung trong `FilePicker`, bật bằng prop `preview`):
+     - `components/FilePreviewDialog.jsx` (Modal `size="xl"` — thêm cỡ `xl` cho `Modal.jsx`): ảnh hiện full-size
+       (dùng lại object URL của thumbnail), PDF vẽ bằng pdf.js; chuyển qua lại giữa các file (‹ ›), nút "Bỏ file này".
+     - `components/PdfPreview.jsx` (lazy): vẽ từng trang ra canvas theo bề rộng khung, có điều hướng trang, giới hạn
+       độ phân giải 2.5×. **Lỗi đã gặp và sửa:** đặt `GlobalWorkerOptions.workerSrc` bằng URL (`?url`) làm pdf.js tạo
+       *classic worker* trong khi bản dist v6 là ES module → mọi PDF đều báo "không đọc được"; phải dùng
+       `workerPort = new Worker(new URL(...), { type: 'module' })`.
+     - Dòng file trong danh sách trở thành nút "xem trước" (hiện icon con mắt khi rê chuột) khi file là ảnh/PDF —
+       chỉ bật ở trang "Quét tài liệu"; trang "Tải file lên" (audio) giữ nguyên.
+  3. **Thu gọn khối trên màn hình nhỏ** (`< xl`): thêm `ui.jsx::CollapseToggle` (chevron, `aria-expanded`), dùng ở
+     header khối "Transcript"/"Nội dung tài liệu" và "Tóm tắt bằng AI". State cục bộ trong `SessionDetail`, mặc định
+     nội dung mở + tóm tắt đóng; khi thu gọn, header hiện tóm lược ("N đoạn" / "N trang") và ẩn danh sách người nói /
+     cảnh báo OCR. Nút "Xem tóm tắt" trên toolbar tự mở khối tóm tắt rồi cuộn tới. Từ `xl` nút bị ẩn, layout 2 cột
+     giữ nguyên. Áp dụng cho cả 3 loại phiên (khối nội dung dùng chung cho `TranscriptView` và `OcrDocumentView`).
+  4. **Nghiên cứu công thức toán (chưa code)** — xem mục "Kết quả nghiên cứu" bên dưới.
+- File/module đã thay đổi:
+  - Backend: `server/app/models/session.py`, `server/app/routers/sessions.py`, `server/tests/test_sessions.py`.
+  - Frontend mới: `client/src/components/FilePreviewDialog.jsx`, `client/src/components/PdfPreview.jsx`,
+    `client/src/lib/files.js`.
+  - Frontend sửa: `client/src/pages/HistoryPage.jsx`, `client/src/lib/api.js`, `client/src/components/FilePicker.jsx`,
+    `client/src/components/FileIngestPage.jsx`, `client/src/pages/ScanPage.jsx`, `client/src/components/Modal.jsx`,
+    `client/src/components/SessionDetail.jsx`, `client/src/components/SummaryPanel.jsx`, `client/src/components/ui.jsx`,
+    `client/package.json` (+ `pdfjs-dist`), `client/package-lock.json`.
+  - Khác: `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Đã kiểm thử:
+  - `pytest` toàn bộ: **58 passed, 2 skipped** (2 test LLM thật). Test sort mới: 7 kiểu sắp xếp, kết hợp bộ lọc,
+    phân trang giữ đúng thứ tự, `sort` sai → 422, phiên không có thời lượng xếp cuối, đổi tên → lên đầu `updated_desc`.
+  - `vite build` OK, `oxlint` không có cảnh báo mới. Kiểm tra UI trên bản build + API giả lập, điều khiển trình duyệt
+    qua **CDP** (`scratchpad/cdp.mjs` — `--virtual-time-budget` của Edge headless bị treo với trang có module worker):
+    dropdown sắp xếp hiện đúng; preview ảnh và preview PDF (render trang bài giảng toán) hoạt động; màn hình 520px:
+    mặc định nội dung mở + tóm tắt đóng, bấm thu gọn nội dung → chỉ còn header "Nội dung tài liệu · 2 trang".
+- Kết quả nghiên cứu công thức toán (gọi Mistral OCR THẬT, 3 trang, ~1 cent):
+  - **Mistral OCR trả LaTeX thật**: inline `$...$` và block `$$...$$` — `\frac`, `\int_0^1`, `\sum_{i=1}^n`,
+    `\lim_{h \to 0}`, `\sqrt`, `\begin{vmatrix}`, `\Delta`, `\pm`, `\det` đều đúng. Kết quả giống nhau với cả PDF
+    (text layer) và ảnh PNG chụp màn hình → không phụ thuộc việc PDF có text sẵn.
+  - **Hiện tại app KHÔNG render**: `OcrDocumentView` chưa có `remark-math`/`rehype-katex` nên người dùng thấy
+    nguyên văn `$$\int_0^1 x^2 dx = ...$$`.
+  - **Chi phí nếu thêm KaTeX** (đo thật): `katex.min.js` 272 KB (76 KB gzip), `katex.min.css` 25 KB (3,6 KB gzip),
+    fonts tổng 1,2 MB / 60 file nhưng trình duyệt chỉ tải subset thực dùng (~26 KB Main-Regular + ~16 KB Math-Italic
+    + vài font Size khi có dấu tích phân lớn). Gộp vào chunk lazy `OcrDocumentView` (đang 158 KB / 47 KB gzip) →
+    chỉ ảnh hưởng phiên OCR. Phiên bản: katex 0.18.7, rehype-katex 7, remark-math 6.
+  - **Đồ thị / hình vẽ:** Mistral trả về dạng **vùng ảnh cắt** (`img-0.jpeg` + bbox trong `page.images`), KHÔNG
+    tái tạo vector. Muốn hiển thị phải bật `include_image_base64=True` và lưu ảnh (hiện code đặt `False` và xoá
+    tham chiếu ảnh khỏi Markdown) → tốn dung lượng DB/response; chưa làm.
+  - **Tương tác với `ocr_review_agent`:** chạy thật trên trang có công thức — agent chỉ đề xuất `derivativ`→`derivative`
+    và `exsam`→`exam`, KHÔNG đụng vào LaTeX. Bộ lọc sẵn có (`corrected` chỉ ký tự Latin cơ bản, khớp nguyên từ) cũng
+    chặn được phần lớn rủi ro; nếu thêm render công thức thì nên bổ sung: bỏ qua đoạn nằm giữa `$...$`/`$$...$$` khi
+    gửi cho agent (hoặc chặn ở bước lọc).
+  - Ghi nhận thêm: chính Mistral OCR tự sửa vài từ tiếng Anh sai trong ảnh in ("meetting"→"meeting",
+    "Jupyther"→"Jupyter") nhưng giữ nguyên "derivativ", "exsam" → vẫn cần bước rà soát bằng LLM.
+- Đang dang dở / chưa xong: chưa render công thức toán (chờ quyết định); chưa thử preview/thu gọn trên điện thoại thật.
+- Việc cần làm tiếp theo: người dùng quyết định có thêm `remark-math` + `rehype-katex` + `katex` hay không (nếu có:
+  thêm vào pipeline `OcrDocumentView`, import CSS KaTeX trong chunk lazy, loại trừ vùng `$...$` khỏi rà soát tiếng Anh,
+  thêm test render công thức).
+- Vấn đề đã biết:
+  - Khối "Tóm tắt bằng AI" khi CHƯA có tóm tắt (thẻ giới thiệu + nút) không có nút thu gọn — khối đã ngắn, không cần.
+  - Preview PDF vẽ bằng canvas nên không chọn/copy được text trong preview (chỉ để xem đúng file trước khi gửi).
+  - pdf.js worker + `--virtual-time-budget` của Edge headless không chạy được: kiểm thử UI có PDF phải dùng CDP.
+
+
+## [2026-09-16] — Đổi nhãn tab "Tải file lên" → "Tải audio"
+- Đã làm: nhãn tab điều hướng (desktop) đổi thành "Tải audio", nhãn ngắn (md và bottom nav trên mobile) thành
+  "Audio" — tránh nhầm với tab "Quét tài liệu" vì cả hai đều là tải file lên. Nút tắt cùng trỏ tới tab này ở
+  empty state trang Lịch sử đổi theo.
+- File/module đã thay đổi: `client/src/App.jsx`, `client/src/pages/HistoryPage.jsx`, `PROGRESS.md`
+- Đã kiểm thử: `vite build` OK, `oxlint` không có cảnh báo mới; chụp màn hình bản build (1440px và 820px) thấy
+  nhãn mới hiển thị đúng.
+- Chưa đổi (giữ nguyên, chờ ý kiến): tiêu đề trang "Tải file ghi âm lên"; nhãn nguồn phiên "File tải lên"
+  (`lib/format.js::SOURCE_LABELS`, bộ lọc trang Lịch sử) và nhãn trong file xuất .txt/.docx + tiêu đề mặc định
+  ở backend (`services/export.py`, `routers/sessions.py`).
+
+## [2026-09-16] — Sửa xem trước file: nội dung co vừa màn hình, không cuộn
+- Vấn đề: ảnh dọc (vd. ảnh chụp vở 1200×1900) trong hộp thoại xem trước bị giới hạn `max-h-[70svh]`, trong khi thân
+  hộp thoại còn thấp hơn (đã trừ header/footer) → sinh thanh cuộn, ảnh bị cắt.
+- Đã làm:
+  - `Modal.jsx`: thêm prop `fill` — panel cao cố định `h-[92svh]` (thay vì `max-h`) để phần trăm chiều cao bên trong
+    phân giải được, thân hộp thoại thành flex + `overflow-hidden`; thêm `data-modal-body` cho dễ kiểm thử.
+  - `FilePreviewDialog.jsx`: bật `fill`; ảnh dùng `m-auto max-h-full max-w-full object-contain` → luôn vừa khung.
+  - `PdfPreview.jsx`: khung canvas là flex-1 `min-h-0`, canvas `max-h-full max-w-full`; scale khi render tính theo
+    MIN(bề ngang, chiều cao) của khung thay vì chỉ bề ngang → trang PDF hiện trọn trong một màn hình.
+- File/module đã thay đổi: `client/src/components/Modal.jsx`, `client/src/components/FilePreviewDialog.jsx`,
+  `client/src/components/PdfPreview.jsx`, `PROGRESS.md`
+- Đã kiểm thử: `vite build` OK, `oxlint` không có cảnh báo mới. Qua CDP ở cửa sổ 1091×790 với ảnh dọc 1200×1900 và
+  PDF bài giảng: `bodyScroll=false`, ảnh 286×451 và trang PDF 346×449 nằm gọn trong vùng 896×483 — không còn cuộn.
+
+## [2026-09-16] — Xem trước PDF: cuộn qua toàn bộ trang (sửa hành vi vừa làm)
+- Vấn đề: lần sửa trước ẩn thanh cuộn của hộp thoại để ảnh vừa màn hình, nhưng PDF nhiều trang thì chỉ xem được
+  1 trang và không kéo xuống được.
+- Hành vi mới (`PdfPreview.jsx` viết lại):
+  - Vùng xem là danh sách dọc TẤT CẢ các trang, cuộn như trình đọc PDF; ảnh vẫn giữ "vừa khung, không cuộn".
+  - Mỗi trang chỉ được vẽ khi tới gần tầm nhìn (IntersectionObserver, `rootMargin` 600px) và canvas được giải phóng
+    (`width=0`) khi cuộn ra xa → PDF dài không phình RAM; khung giữ chỗ đúng kích thước nên thanh cuộn không nhảy.
+  - Chỉ báo "Trang x / N" tính theo `scrollTop`, nút ‹ › cuộn mượt tới trang trước/sau.
+  - 2 chế độ: **Vừa cả trang** (mặc định — mỗi trang hiện trọn, cuộn để sang trang) và **Vừa chiều ngang** (trang
+    rộng bằng khung, chữ to hơn, cuộn dọc trong từng trang). Canvas vẽ theo `devicePixelRatio` (tối đa 2×).
+- File/module đã thay đổi: `client/src/components/PdfPreview.jsx`, `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`
+- Đã kiểm thử: `vite build` OK, `oxlint` không có cảnh báo mới. Qua CDP với PDF 12 trang (cửa sổ 1091×790):
+  mở ra thấy 12 khung trang, chỉ 3 canvas được vẽ; cuộn 2000px → nhãn đổi thành "Trang 6 / 12", số canvas đã vẽ = 5
+  (các trang xa đã được giải phóng); đổi sang "Vừa chiều ngang" → trang rộng 804px, tổng chiều cao cuộn 13808px.
+- Vấn đề đã biết: chưa có zoom tự do / kéo ảnh; PDF có trang khác khổ thì khung giữ chỗ tính theo trang đầu (trang
+  vẫn vẽ đúng tỉ lệ của nó, chỉ có thể lệch khoảng trống).
+
+## [2026-09-16] — Sửa lỗi trắng trang khi đóng xem trước PDF
+- Lỗi: bấm "Đóng" (hoặc Esc) sau khi xem trước PDF → toàn bộ giao diện biến mất, chỉ còn nền.
+- Nguyên nhân: cleanup của effect trong `PdfPreview` gọi `PDFDocumentProxy.destroy()`, nhưng **pdf.js v6 đã bỏ
+  `destroy()` trên `PDFDocumentProxy`** (chỉ `PDFDocumentLoadingTask` còn) → `TypeError: destroy is not a function`
+  ném ra trong lúc React unmount → React gỡ sạch cây component (không có error boundary nên ra trang trắng).
+- Đã sửa:
+  - `PdfPreview.jsx`: giữ `loadingTask` và gọi `task.destroy()` (nuốt promise reject, bọc try/catch để cleanup không
+    bao giờ ném ra ngoài); nhánh bị huỷ (StrictMode chạy effect 2 lần ở dev) cũng tự `destroy()` để không giữ worker.
+  - Thêm `components/ErrorBoundary.jsx` bọc toàn app trong `main.jsx`: lỗi component sau này sẽ hiện thông báo +
+    nút "Tải lại trang" kèm message lỗi, thay vì trang trắng.
+- File/module đã thay đổi: `client/src/components/PdfPreview.jsx`, `client/src/components/ErrorBoundary.jsx` (mới),
+  `client/src/main.jsx`, `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`
+- Đã kiểm thử: tái hiện được lỗi trên bản build (root rỗng, `rootHtmlLength = 0`, exception
+  `n?.destroy is not a function`). Sau khi sửa, kiểm tra qua CDP trên **cả bản build lẫn `vite dev` (StrictMode)**
+  với PDF 12 trang: mở preview → cuộn 1500px → Đóng (và thử cả phím Esc) → hộp thoại đóng, `rootHtmlLength = 18108`,
+  danh sách file còn nguyên, không có lỗi/console error nào. `vite build` OK, `oxlint` không có cảnh báo mới.

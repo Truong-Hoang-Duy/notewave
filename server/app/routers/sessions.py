@@ -19,6 +19,7 @@ from app.models.session import (
     SessionList,
     SessionListItem,
     SessionRead,
+    SessionSort,
     SessionSource,
     SessionUpdate,
 )
@@ -32,6 +33,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 DISPLAY_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+
+# ORDER BY cho từng kiểu sắp xếp. Tiêu đề so sánh không phân biệt hoa/thường (func.lower) để "ảnh" và "Ảnh"
+# nằm cạnh nhau; thời lượng null (phiên quét tài liệu) luôn xếp cuối. Luôn kèm created_at làm tiêu chí phụ
+# để thứ tự ổn định khi phân trang.
+_SORTS = {
+    "created_desc": lambda: (col(NoteSession.created_at).desc(),),
+    "created_asc": lambda: (col(NoteSession.created_at).asc(),),
+    "title_asc": lambda: (func.lower(col(NoteSession.title)).asc(), col(NoteSession.created_at).desc()),
+    "title_desc": lambda: (func.lower(col(NoteSession.title)).desc(), col(NoteSession.created_at).desc()),
+    "updated_desc": lambda: (col(NoteSession.updated_at).desc(), col(NoteSession.created_at).desc()),
+    "duration_desc": lambda: (col(NoteSession.duration_ms).desc().nullslast(), col(NoteSession.created_at).desc()),
+    "duration_asc": lambda: (col(NoteSession.duration_ms).asc().nullslast(), col(NoteSession.created_at).desc()),
+}
 
 
 def _default_title(source: str) -> str:
@@ -71,6 +85,7 @@ def list_sessions(
     source: SessionSource | None = None,
     group_id: str | None = Query(default=None, description='Id nhóm, hoặc "none" để lấy phiên chưa phân nhóm'),
     archived: bool = Query(default=False, description="True: chỉ lấy phiên đã lưu trữ (sau khi gộp)"),
+    sort: SessionSort = Query(default="created_desc", description="Thứ tự sắp xếp (ORDER BY ở DB)"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ) -> SessionList:
@@ -91,7 +106,7 @@ def list_sessions(
             )
         )
     total = db.exec(select(func.count()).select_from(stmt.subquery())).one()
-    rows = db.exec(stmt.order_by(col(NoteSession.created_at).desc()).offset(offset).limit(limit)).all()
+    rows = db.exec(stmt.order_by(*_SORTS[sort]()).offset(offset).limit(limit)).all()
 
     group_ids = {r.group_id for r in rows if r.group_id}
     groups = {g.id: g for g in db.exec(select(SessionGroup).where(col(SessionGroup.id).in_(group_ids))).all()} if group_ids else {}
