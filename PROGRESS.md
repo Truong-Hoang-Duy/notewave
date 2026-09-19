@@ -678,3 +678,165 @@
   `n?.destroy is not a function`). Sau khi sửa, kiểm tra qua CDP trên **cả bản build lẫn `vite dev` (StrictMode)**
   với PDF 12 trang: mở preview → cuộn 1500px → Đóng (và thử cả phím Esc) → hộp thoại đóng, `rootHtmlLength = 18108`,
   danh sách file còn nguyên, không có lỗi/console error nào. `vite build` OK, `oxlint` không có cảnh báo mới.
+
+## [2026-09-18] — Phân tích đặc tả "Ghi chú Cornell" (`NoteWave_Note_Feature_Prompt.md`) + chốt quyết định (chưa code)
+- Đã làm: đánh giá tính khả thi của đặc tả, đối chiếu với code hiện tại, hỏi người dùng các quyết định ở mục 1 của đặc tả.
+- Quyết định đã chốt (người dùng trả lời):
+  - **Không đồng bộ nhiều thiết bị** (không polling / WebSocket / Supabase Realtime). App vẫn một người dùng, không auth.
+  - **Không kiểm tra phiên bản khi lưu** — last-write-wins. Người dùng chấp nhận rủi ro: tab/thiết bị giữ nội dung cũ
+    tự lưu sẽ ghi đè bản mới hơn mà không cảnh báo.
+  - **Ảnh trong note → Supabase Storage**, gọi REST từ backend bằng `httpx` (không dùng SDK Supabase ở client), bucket
+    private, ảnh trả về qua signed URL ngắn hạn. Cần biến mới: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` (chỉ backend),
+    `NOTE_ASSETS_BUCKET` → cập nhật `.env.example`, `render.yaml`, `DEPLOY.md` khi làm.
+  - **Lưu nội dung:** `content_json` (Tiptap JSON, để mở lại editor) + `content_md` (Markdown do frontend sinh bằng
+    `@tiptap/markdown`) → backend chỉ dùng Markdown cho tìm kiếm / tóm tắt / export (`markdown_docx.py`) / backlink.
+  - **Thư viện được duyệt:** Tiptap v3 (`@tiptap/*` MIT: StarterKit, TaskList, Table, Image, Mathematics, Markdown),
+    `katex` + `remark-math` + `rehype-katex` (dùng chung cho `OcrDocumentView` → quyết định treo ngày 2026-09-16 đã
+    được thông qua). Tải lazy chỉ ở `#/notes`. `dexie` / `vite-plugin-pwa`: chưa duyệt.
+  - **Thư mục:** `NoteFolder` riêng **dạng cây** (`parent_id`) + Tag nhiều-nhiều; KHÔNG dùng lại `SessionGroup`.
+  - **Cột trái Cornell:** danh sách câu hỏi `{id, text, anchor}`, mỗi câu **neo vào một đoạn** của nội dung (bấm → cuộn
+    tới), có **chế độ ôn tập** (ẩn cột nội dung để tự kiểm tra).
+  - **Tuỳ chỉnh giao diện: chỉ theo từng note** (cột `style` JSONB, không có cấu hình chung).
+  - **Note tách biệt hoàn toàn với phiên:** không có "Tạo note từ phiên", bỏ `source_session_id` và endpoint
+    `/api/notes/from-session/{id}`.
+  - **Tóm tắt AI:** agent `NoteSummary` riêng (ý chính, khái niệm, câu hỏi ôn tập), dùng chung `SUMMARY_MODEL` +
+    `build_model_settings`; không dùng `MeetingSummary`.
+  - Chưa hỏi lại nhưng áp dụng theo đặc tả: canvas thuần cho bảng vẽ công thức; xuất PDF bằng `window.print()`;
+    backlink do backend tự tính lại từ node liên kết trong nội dung mỗi lần lưu (chỉ cần `GET .../backlinks`).
+- File/module đã thay đổi: `PROGRESS.md`
+- Việc cần làm tiếp theo:
+  1. Thử nghiệm trước khi code: (a) Mistral OCR với công thức **viết tay** trên canvas (gửi data URI, chưa kiểm chứng —
+     trước đây chỉ đo chữ in); (b) Tiptap với bộ gõ tiếng Việt (Telex, Gboard/Laban Key) trên Android thật.
+  2. Giai đoạn 1: model `Note`/`NoteFolder`/`Tag`/`NoteTagLink` + CRUD, trang `#/notes`, layout Cornell, tự lưu debounce
+     + nháp cục bộ khi lưu thất bại (Render đang khởi động lại / mất mạng).
+- Vấn đề đã biết: app không có auth, ai biết URL backend thì đọc được mọi note.
+
+## [2026-09-18] — Thử nghiệm 1: Mistral OCR với công thức vẽ tay trên canvas (chưa code tính năng)
+- Cách làm: vẽ 8 công thức bằng `<canvas>` trong Edge headless (font viết tay Ink Free có rung/xoay ngẫu nhiên, tích
+  phân/căn/sigma/ngoặc vẽ bằng path, nét tròn 3px, nền trắng 1000×360) → gọi `mistral-ocr-latest` THẬT. Mỗi ảnh chạy
+  3 lần ở 2 dạng: nguyên khung và cắt sát nét vẽ (+ lề 24px). Tổng ~58 lần gọi (~5–10 cent). Script, ảnh, kết quả nằm
+  trong scratchpad của phiên (không commit).
+- Kết quả:
+  - **Đúng 7/8 công thức**: mũ, tích phân có cận, căn, tổng Σ có cận, giới hạn, nghiệm phương trình bậc 2 (phân số lồng
+    căn), hệ phương trình. Trả LaTeX chuẩn, render được bằng KaTeX.
+  - **Kết quả tất định**: 3 lần chạy cho kết quả y hệt → gọi lại không sửa được lỗi, phải để người dùng sửa tay.
+  - **1 công thức sai ổn định**: `(a+b)/(c-d) = k` đọc thành `c+d` và `= e`. Với ảnh nguyên khung (nhiều khoảng trắng)
+    Mistral còn **bịa thêm 2 công thức không có trong ảnh**; ảnh đã cắt sát thì hết bịa, nhưng vẫn đọc sai ký tự.
+  - **Cắt sát nét vẽ** loại bỏ được lỗi bịa nội dung, không làm hỏng công thức nào (hệ phương trình ra `\{\begin{matrix}`
+    thay vì `\left\{...\right.` — vẫn đúng nội dung, KaTeX render được).
+  - **Cách bọc không thống nhất**: `$$...$$`, `\[...\]`, có khi nhiều khối → backend phải chuẩn hoá (bỏ dấu bọc, trả
+    LaTeX trần; nếu có nhiều khối thì trả kèm cảnh báo).
+  - **Độ trễ**: gửi data URI ~0,4–0,8 s (lần đầu ~3,8 s), qua Files API (upload → signed URL → OCR → xoá) ~1,6–1,9 s →
+    endpoint công thức gửi **data URI**, không đi Files API.
+- Kết luận thiết kế cho `POST /api/notes/formula-ocr` (Giai đoạn 2): frontend cắt canvas sát nét vẽ trước khi gửi;
+  backend gửi data URI, chuẩn hoá dấu bọc; UI **luôn cho xem trước bản render KaTeX + ô sửa LaTeX** trước khi chèn
+  (không chèn thẳng).
+- Giới hạn của thử nghiệm: ảnh là font viết tay + rung ngẫu nhiên, sạch hơn chữ viết tay thật → cần kiểm lại bằng nét vẽ
+  thật của người dùng (tiện nhất là khi đã có bảng vẽ ở Giai đoạn 2). Chưa so sánh với model vision (gpt-5.6-luna).
+- File/module đã thay đổi: `PROGRESS.md`
+- Việc cần làm tiếp theo: Thử nghiệm 2 (Tiptap + bộ gõ tiếng Việt trên Android thật) hoặc bắt đầu Giai đoạn 1.
+
+## [2026-09-18] — Ghi chú Cornell: GIAI ĐOẠN 1 XONG (nền tảng note, online-only)
+- Trạng thái giai đoạn của tính năng Ghi chú (`NoteWave_Note_Feature_Prompt.md` mục 6): **Giai đoạn 1 — xong.**
+  Giai đoạn 2 (ảnh / bảng / KaTeX / vẽ công thức → LaTeX / paste) — chưa bắt đầu. Giai đoạn 3–5 — chưa bắt đầu
+  (GĐ4 phần đồng bộ nhiều thiết bị đã bị bỏ theo quyết định của người dùng).
+- Đã làm:
+  - **Backend:** model `Note`, `NoteFolder` (cây, `parent_id`), `NoteTag`, `NoteTagLink` (`models/note.py`); logic dùng chung
+    `services/notes.py`; router `/api/notes` (CRUD + PATCH từng phần + tìm/lọc/sắp xếp ở DB), `/api/note-folders` (tạo /
+    đổi tên / chuyển cha có chặn vòng lặp / xoá chuyển nội dung lên cha), `/api/tags` (CRUD). 4 bảng mới tự bật RLS qua cơ
+    chế sẵn có (đã kiểm tra `relrowsecurity = true`).
+  - **Frontend:** tab "Ghi chú" (`#/notes`, `#/notes/<id>`, 5 tab trên header và bottom nav); `pages/NotesPage.jsx` (cây thư
+    mục + tag ở sidebar từ `lg`, dưới `lg` là dropdown + chip; tìm kiếm, sắp xếp nhớ localStorage `notewave:notes-sort`,
+    quản lý thư mục/tag); `components/notes/NoteDetail.jsx` (bố cục Cornell: `lg` 2 cột + dải tóm tắt, dưới `lg` 3 tab);
+    editor Tiptap có thanh công cụ (heading, đậm/nghiêng/gạch chân/gạch ngang/code, 3 loại danh sách + checklist, trích
+    dẫn, khối code, kẻ ngang, undo/redo) + gõ tắt Markdown; cột câu hỏi có neo vào đoạn / đi tới đoạn / cảnh báo neo mất;
+    chế độ Ôn tập; giao diện riêng từng note (6 màu, 4 font — Lora / Patrick Hand tải từ Google Fonts khi dùng, 4 cỡ chữ);
+    tự lưu + nháp cục bộ + tự thử lại + khôi phục nháp; xoá note.
+  - Tiptap là chunk lazy `NoteDetail` (~495 KB / 157 KB gzip); `NotesPage` 19 KB / 6 KB gzip; bundle chính không đổi.
+- File/module đã thay đổi:
+  - Backend mới: `server/app/models/note.py`, `server/app/services/notes.py`, `server/app/routers/notes.py`,
+    `server/app/routers/note_folders.py`, `server/app/routers/tags.py`, `server/tests/test_notes.py`.
+  - Backend sửa: `server/app/main.py`, `server/app/db.py` (import model), `server/tests/conftest.py` (TRUNCATE thêm 4 bảng).
+  - Frontend mới: `client/src/pages/NotesPage.jsx`, `client/src/components/notes/` (`NoteDetail`, `NoteContentEditor`,
+    `CueColumn`, `NoteStylePicker`, `FolderSelect`, `TagPicker`, `NameDialog`, `useDismiss.js`, `useAutoGrow.js`),
+    `client/src/hooks/useNoteLibrary.js`, `client/src/hooks/useNoteAutosave.js`, `client/src/lib/noteEditor.js`,
+    `client/src/lib/noteStyles.js`.
+  - Frontend sửa: `client/src/App.jsx`, `client/src/lib/api.js` (API note + tuỳ chọn `keepalive`), `client/src/index.css`
+    (`.note-sheet` / `.note-prose`), `client/package.json` + lock (Tiptap v3.31).
+  - Khác: `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Đã kiểm thử:
+  - `pytest` toàn bộ: **72 passed, 2 skipped** (14 test mới cho note/thư mục/tag; 2 skip là test LLM thật).
+  - `vite build` OK; `oxlint` không có cảnh báo mới (các cảnh báo còn lại đều ở file cũ).
+  - UI thật qua CDP (Edge headless) với **backend thật chạy trên schema `notewave_test`** (launcher trong scratchpad, cùng cơ
+    chế `schema_translate_map` của conftest — đã kiểm tra schema `public` KHÔNG có bảng note nào) + `vite dev` (StrictMode):
+    - Desktop 1440px (25 bước): tạo thư mục → note mới vào đúng thư mục → gõ tắt `## `, `- `, `[ ] ` ra đúng khối → mọi khối có
+      `data-id` → 3 câu hỏi (Enter tạo câu mới), neo 2 câu, vạch đánh dấu đúng 2 đoạn → tự lưu (tiêu đề, cues + neo, tóm tắt,
+      Markdown đúng) → bấm câu hỏi cuộn + nháy đoạn → giao diện sepia/viết tay/lớn áp dụng + lưu → tạo tag mới trong picker →
+      Ôn tập (chỉ đọc, "Xem đáp án" chỉ ở câu đã neo, hiện đúng chữ) → danh sách hiện thư mục/tag/số câu hỏi → tìm theo nội dung.
+    - Mobile 390px (23 bước): không tràn ngang, sidebar → dropdown, 3 tab, thanh công cụ cuộn ngang trong chính nó, câu hỏi
+      hiện đủ chữ khi mở tab, bấm câu đã neo tự về tab Nội dung; **mất mạng** khi gõ → "Chưa lưu được" + nháp localStorage →
+      có mạng lại tự lưu + xoá nháp; **khôi phục nháp** mới hơn máy chủ khi mở lại (nháp cũ hơn thì bỏ); rời trang trước khi hết
+      debounce vẫn lưu; đổi tên / xoá thư mục (note chuyển ra ngoài); xoá note (404, không sót nháp). Không có lỗi console.
+  - Lỗi phát hiện qua kiểm thử và đã sửa: (1) hiệu ứng nháy bằng class bị ProseMirror gỡ ngay → `el.animate()`;
+    (2) chấm đánh dấu đoạn được neo trông như dấu đầu dòng → vạch dọc + nền nhạt; (3) textarea câu hỏi cao 0px khi mount
+    lúc tab đang ẩn (chữ không hiện trên mobile) → `useAutoGrow` với ResizeObserver; (4) preview danh sách còn dấu `-`.
+- Đang dang dở / chưa xong: chưa có export note (.txt/.docx/.pdf — đặc tả để GĐ5, có thể làm sớm bằng `content_md` +
+  `markdown_docx.py`); chưa có kéo-thả note/thư mục (chuyển thư mục cha qua menu "Chuyển tới…", chuyển note qua dropdown).
+- Việc cần làm tiếp theo: Giai đoạn 2 — thêm `katex`/`remark-math`/`rehype-katex`, `@tiptap/extension-mathematics`,
+  `@tiptap/extension-table`; ảnh qua Supabase Storage (biến mới `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `NOTE_ASSETS_BUCKET`
+  → cập nhật `.env.example`, `render.yaml`, `DEPLOY.md`); bảng vẽ canvas + `POST /api/notes/formula-ocr` (theo kết luận
+  Thử nghiệm 1: cắt sát nét vẽ, gửi data URI, chuẩn hoá dấu bọc, luôn cho xem trước + sửa LaTeX trước khi chèn).
+- Vấn đề đã biết:
+  - **Chưa thử bộ gõ tiếng Việt (Telex/VNI, Gboard/Laban Key) trên điện thoại thật** — người dùng bỏ qua Thử nghiệm 2; CDP chỉ
+    chèn chữ trực tiếp, không mô phỏng IME. Nên thử sớm trên Android thật.
+  - Last-write-wins: mở cùng một note ở 2 tab/thiết bị thì bản lưu sau ghi đè (đã được người dùng chấp nhận).
+  - Nháp khôi phục so sánh `saved_at` (đồng hồ máy khách) với `updated_at` (máy chủ) — lệch giờ lớn có thể bỏ nhầm / áp nhầm nháp.
+  - Request `keepalive` khi đóng tab bị trình duyệt giới hạn ~64 KB: note lớn hơn thì chỉ còn nháp localStorage, được lưu ở lần mở sau.
+  - Đoạn xem trước trong danh sách bỏ ký tự `|` (vd. `|x|` → `x`) do dùng chung quy tắc lọc ký hiệu bảng Markdown.
+  - StarterKit v3 có `TrailingNode`: tài liệu luôn kết thúc bằng một đoạn trống (hành vi chuẩn, không phải lỗi).
+
+## [2026-09-18] — Ghi chú: danh sách số đánh tiếp khi bị ngắt bởi đoạn văn + sửa id khối trùng
+- Vấn đề (người dùng báo): danh sách số bị ngắt bởi một đoạn văn thì danh sách sau lại bắt đầu từ 1.
+- Đã làm:
+  - `lib/orderedListContinuation.js` (extension Tiptap): danh sách số MỚI tạo (nút thanh công cụ, gõ `1. `) đang bắt đầu từ 1
+    tự nối số theo danh sách số gần nhất phía trên trong cùng khối cha; gặp tiêu đề thì dừng (phần mới → đánh lại từ 1); gõ
+    số cụ thể (`7. `) giữ nguyên. Tách danh sách (Enter 2 lần ở giữa): nửa đầu giữ số bắt đầu cũ, nửa sau nối tiếp. Nút thanh
+    công cụ khi con trỏ ở danh sách số: "Đánh số lại từ 1" / "Đánh số tiếp theo danh sách phía trên". Markdown lưu đúng số
+    (`3. Mục ba`) vì `@tiptap/markdown` đã dùng thuộc tính `start`.
+  - Phát hiện khi kiểm thử: **Tiptap UniqueID để lại id trùng khi tách một khối** (2 nửa danh sách cùng `data-id`) — ảnh hưởng
+    cả neo câu hỏi Cornell. Thêm `lib/blockIdGuard.js`: sau mỗi thay đổi, khối xuất hiện trước giữ id, khối sau nhận id mới
+    (có fallback khi không có `crypto.randomUUID` — mở dev qua IP LAN không phải secure context).
+- File/module đã thay đổi: `client/src/lib/orderedListContinuation.js` (mới), `client/src/lib/blockIdGuard.js` (mới),
+  `client/src/components/notes/NoteContentEditor.jsx`, `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`
+- Đã kiểm thử: CDP + backend thật trên schema `notewave_test`: kịch bản đánh số 13 bước (tình huống trong ảnh của người dùng
+  → 3; đánh lại từ 1 / đánh tiếp; thêm mục; sau tiêu đề về 1; `7. ` giữ 7; bật bằng nút → 8; tách danh sách → 2; Markdown
+  đúng số; tải lại trang không đổi số) — qua hết. Chạy lại kịch bản desktop (25 bước) và mobile (23 bước) — qua hết, không
+  lỗi console. `vite build` OK, `oxlint` không có cảnh báo mới.
+- Vấn đề đã biết: nối số chỉ xét danh sách cùng khối cha (danh sách lồng trong mục khác không nối với danh sách ngoài); tạo
+  danh sách mới phía TRÊN một danh sách có sẵn không đánh lại số của danh sách bên dưới (giống Google Docs). Muốn viết đoạn
+  giải thích mà không ngắt danh sách: Shift+Enter xuống dòng trong cùng mục.
+
+## [2026-09-18] — Ghi chú: khung ghi chú cố định theo màn hình, cuộn bên trong từng vùng
+- Yêu cầu (người dùng): trên máy tính và điện thoại, trang chi tiết ghi chú không được có thanh cuộn ngoài cùng; chỉ cuộn bên
+  trong khung ghi chú.
+- Đã làm:
+  - `hooks/useViewportFit.js`: thêm tuỳ chọn `mobile` — trừ thêm padding dưới của khung app (chỗ của bottom nav cố định) và
+    tính theo `visualViewport` (khung co lại khi bàn phím ảo mở; bỏ qua khi đang phóng to). Mặc định giữ nguyên hành vi cũ
+    (SessionDetail không đổi).
+  - `NoteDetail.jsx`: khung Cornell `h-(--fit-h)` ở mọi breakpoint, `overflow-hidden`; từ `lg`: grid 2 cột
+    `grid-rows-[minmax(0,1fr)]`, cột câu hỏi và nội dung tự cuộn, dải tóm tắt tối đa 30% khung và tự cuộn (bỏ `sticky` cũ của
+    cột câu hỏi); dưới `lg`: tab đang chọn chiếm cả khung và tự cuộn. Tối thiểu 220px (màn hình rất thấp / bàn phím chiếm quá
+    nửa thì trang cuộn nhẹ). Tiêu đề nhỏ hơn trên mobile, dropdown thư mục + tag chung một hàng, khoảng cách khối 8px trên mobile.
+  - `NoteContentEditor.jsx`: thanh công cụ nằm cố định đầu khung (không còn `sticky` theo trang), nội dung trong vùng cuộn riêng;
+    bấm vào khoảng trống dưới nội dung -> đưa con trỏ về cuối tài liệu.
+- File/module đã thay đổi: `client/src/hooks/useViewportFit.js`, `client/src/components/notes/NoteDetail.jsx`,
+  `client/src/components/notes/NoteContentEditor.jsx`, `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`
+- Đã kiểm thử (CDP + backend thật trên schema `notewave_test`, ghi chú 60 đoạn / 30 câu hỏi / tóm tắt 25 dòng): 1440×900,
+  1024×768, 820×1180, 390×844, 360×640 — trang ngoài không cuộn (`scrollHeight = innerHeight`), đáy khung nằm trên bottom nav,
+  nội dung cuộn bên trong + thanh công cụ không trôi, cột câu hỏi / tóm tắt tự cuộn, bấm câu hỏi đã neo chỉ cuộn vùng nội dung
+  tới đúng đoạn; mỗi tab mobile chiếm cả khung; thu viewport 844 -> 520 (mô phỏng bàn phím Android) khung co 485 -> 220px;
+  46 bước qua. Chạy lại kịch bản desktop (25), mobile (23), đánh số (12) — qua hết, không lỗi console. `vite build` OK,
+  `oxlint` không có cảnh báo mới.
+- Vấn đề đã biết: chưa thử bàn phím ảo trên iOS/Android thật (iOS còn tự cuộn layout viewport khi focus ô nhập — có thể cần
+  tinh chỉnh thêm sau khi thử máy thật); màn hình rất thấp (<~600px chiều cao, hoặc bàn phím mở trên máy nhỏ) chạm mức tối
+  thiểu 220px nên trang cuộn nhẹ.

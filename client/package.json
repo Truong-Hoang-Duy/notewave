@@ -11,6 +11,13 @@
   },
   "dependencies": {
     "@soniox/client": "^2.3.0",
+    "@tiptap/extension-list": "^3.31.3",
+    "@tiptap/extension-unique-id": "^3.31.3",
+    "@tiptap/extensions": "^3.31.3",
+    "@tiptap/markdown": "^3.31.3",
+    "@tiptap/pm": "^3.31.3",
+    "@tiptap/react": "^3.31.3",
+    "@tiptap/starter-kit": "^3.31.3",
     "lucide-react": "^1.46.0",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.2.8",

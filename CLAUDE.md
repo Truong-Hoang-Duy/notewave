@@ -13,6 +13,10 @@
 3. **Quét tài liệu** — chụp ảnh / tải ảnh hoặc PDF (biên bản viết tay, bảng trắng...), Mistral OCR trích xuất Markdown,
    AI đề xuất sửa từ tiếng Anh viết sai để người dùng duyệt.
 
+4. **Ghi chú (Cornell)** — ghi chú học tập độc lập: cột câu hỏi/từ khoá (neo vào từng đoạn) — nội dung chi tiết
+   (editor Tiptap) — tóm tắt tự viết; thư mục dạng cây + tag, tự lưu, chế độ ôn tập, giao diện riêng từng note
+   (Giai đoạn 1 xong 2026-09-18; các giai đoạn sau theo `NoteWave_Note_Feature_Prompt.md` + `PROGRESS.md`).
+
 2 luồng giọng nói hỗ trợ phân biệt người nói (speaker diarization); cả 3 luồng đều lưu lịch sử phiên,
 tóm tắt bằng AI, và xuất file .txt/.docx.
 
@@ -22,8 +26,13 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
   trong `@theme` ở `client/src/index.css`). Thư mục `/client`. Thư viện phụ đã được duyệt:
   `@soniox/client` (SDK chính thức — ghi âm micro + WebSocket real-time), `lucide-react` (icon),
   `react-markdown` + `remark-gfm` (render Markdown OCR — chunk lazy, chỉ tải khi mở phiên OCR),
-  `pdfjs-dist` (xem trước PDF trước khi tải lên — chunk lazy, chỉ tải khi mở preview một file PDF).
-  Điều hướng dùng hash router tự viết (`#/live`, `#/upload`, `#/scan`, `#/history/<id>`), không dùng react-router.
+  `pdfjs-dist` (xem trước PDF trước khi tải lên — chunk lazy, chỉ tải khi mở preview một file PDF),
+  **Tiptap v3** (`@tiptap/react`, `pm`, `starter-kit`, `extension-list`, `extensions`, `markdown`, `extension-unique-id` —
+  editor của Ghi chú, chunk lazy chỉ tải khi mở một ghi chú; duyệt 2026-09-18). Đã duyệt nhưng CHƯA cài (Giai đoạn 2 của
+  Ghi chú): `katex` + `remark-math` + `rehype-katex` (dùng chung cho Ghi chú và `OcrDocumentView`), `@tiptap/extension-table`,
+  `@tiptap/extension-mathematics`. Chưa duyệt: `dexie`, `vite-plugin-pwa`.
+  Điều hướng dùng hash router tự viết (`#/live`, `#/upload`, `#/scan`, `#/notes`, `#/notes/<id>`, `#/history/<id>`),
+  không dùng react-router.
 - **Backend:** Python, FastAPI (web server) + PydanticAI (agent tóm tắt / rà soát OCR bằng LLM). Thư mục `/server`.
   Thư viện phụ đã được duyệt: `mistralai` (SDK Mistral OCR), `pypdf` (đếm trang PDF trước khi OCR).
 - **Database:** **Supabase Postgres (hosted), local và production dùng CHUNG 1 project, cùng 1 `DATABASE_URL`**
@@ -43,7 +52,8 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
     `prepare_threshold=None` để chạy được qua pooler.
   - Kiểu cột dùng tính năng Postgres: `JSONB` cho `segments`/`summary`/`merge_sources`,
     `timestamptz` cho mọi cột thời gian (`models/common.py::tz_column`).
-  - Chỉ dùng phần Postgres của Supabase; chưa tích hợp Supabase Auth/Storage/SDK vào code.
+  - Chỉ dùng phần Postgres của Supabase; chưa tích hợp Supabase Auth/Storage/SDK vào code (Storage sẽ dùng cho ảnh của
+    Ghi chú ở Giai đoạn 2 — gọi REST từ backend, không dùng SDK ở client).
   - Bảng tạo bằng `SQLModel.metadata.create_all` lúc khởi động (không dùng migrations của Supabase CLI).
 - **Speech-to-Text:** Soniox API.
   - Ghi âm trực tiếp → **Real-time WebSocket API** (`wss://api.soniox.com/transcribe-websocket`),
@@ -89,6 +99,12 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 | `/api/sessions/assign-group` | POST | Gán/gỡ nhiều phiên vào nhóm: `{"session_ids": [...], "group_id": "<id>" \| null}` |
 | `/api/groups` | GET/POST | Liệt kê nhóm (kèm `session_count`, không tính phiên archived) / tạo nhóm `{"name"}` (tên không trùng, không phân biệt hoa thường) |
 | `/api/groups/{id}` | PATCH/DELETE | Đổi tên nhóm / xoá nhóm (phiên trong nhóm chuyển về "chưa phân nhóm", không bị xoá) |
+| `/api/notes` | POST/GET | Tạo ghi chú Cornell (`{title?, folder_id?, tag_ids?}`) / liệt kê (`?q=` tìm trong tiêu đề+câu hỏi+nội dung+tóm tắt, `?folder_id=<id>\|none` (chỉ note nằm TRỰC TIẾP), `?tag_id=`, `?sort=` `updated_desc` (mặc định) \| `created_desc` \| `created_asc` \| `title_asc` \| `title_desc`, `limit`, `offset`) |
+| `/api/notes/{id}` | GET/PATCH/DELETE | Xem / cập nhật TỪNG PHẦN (autosave chỉ gửi field đã đổi: `title`, `folder_id` (null tường minh = ra gốc), `tag_ids` (thay toàn bộ), `cues`, `content_json`, `content_md`, `summary`, `style`) — last-write-wins, không kiểm tra phiên bản / xoá |
+| `/api/note-folders` | GET/POST | Liệt kê thư mục (phẳng, kèm `parent_id` + `note_count` trực tiếp; frontend dựng cây) / tạo `{name, parent_id?}` (tên không trùng trong cùng thư mục cha, không phân biệt hoa thường) |
+| `/api/note-folders/{id}` | PATCH/DELETE | Đổi tên và/hoặc chuyển thư mục cha (`parent_id`, chặn vòng lặp → 422) / xoá: note + thư mục con chuyển lên thư mục cha (trùng tên thì thêm hậu tố " (2)"), không xoá note |
+| `/api/tags` | GET/POST | Liệt kê tag (kèm `note_count`) / tạo `{name}` (bỏ `#` đầu, gộp khoảng trắng, không trùng tên) |
+| `/api/tags/{id}` | PATCH/DELETE | Đổi tên / xoá tag (gỡ khỏi mọi note, note không bị xoá) |
 | `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`, `soniox_configured`, `ocr_configured`, `webhook_enabled`; luôn HTTP 200 |
 
 Ghi chú:
@@ -137,6 +153,20 @@ Ghi chú:
     `updated_at` cũ hơn 10 phút → endpoint status đặt `failed` ("bị gián đoạn").
   - Tóm tắt phiên OCR: prompt báo nội dung là văn bản OCR (không đổi `INSTRUCTIONS`). Export: tiêu đề "Nội dung tài
     liệu", nhãn "Trang N" khi nhiều trang; .docx chuyển Markdown cơ bản (`services/markdown_docx.py`).
+- **Ghi chú Cornell** (`models/note.py`, `services/notes.py`, `routers/notes.py`, `routers/note_folders.py`,
+  `routers/tags.py`; quyết định 2026-09-18, đặc tả gốc `NoteWave_Note_Feature_Prompt.md` — xem `PROGRESS.md` cho các
+  điểm đã đổi so với đặc tả): note là đối tượng ĐỘC LẬP (không liên kết `NoteSession`, không "tạo note từ phiên").
+  - Bảng `notes`, `note_folders` (cây, `parent_id`), `note_tags`, `note_tag_links` (nhiều-nhiều) — không FK ở DB, router
+    tự dọn liên kết. `NoteFolder` riêng, KHÔNG dùng lại `SessionGroup`.
+  - Nội dung lưu 2 dạng: `content_json` (Tiptap JSON, để mở lại editor) + `content_md` (Markdown do frontend sinh bằng
+    `editor.getMarkdown()`) — backend chỉ đọc Markdown (tìm kiếm, sau này export/AI/backlink). `search_text` = chữ thường
+    của tiêu đề + câu hỏi + Markdown + tóm tắt, cập nhật mỗi lần lưu.
+  - `cues` (cột trái) = `[{id, text, anchor}]`; `anchor` = id khối nội dung (thuộc tính `data-id` do Tiptap UniqueID sinh)
+    → bấm câu hỏi cuộn tới đoạn đó; chế độ "Ôn tập" che nội dung + tóm tắt, "Xem đáp án" hiện chữ của đoạn được neo.
+  - `summary` = tóm tắt người học TỰ viết (tóm tắt AI sẽ là cột riêng). `style` = `{theme, font, font_size}` chỉ nhận giá
+    trị có sẵn (`NoteTheme`/`NoteFont`/`NoteFontSize` ↔ `client/src/lib/noteStyles.js`), áp riêng cho từng note.
+  - Không đồng bộ nhiều thiết bị, không kiểm tra phiên bản (last-write-wins, người dùng chấp nhận rủi ro ghi đè).
+  - Ảnh trong note (Giai đoạn 2) sẽ lưu Supabase Storage qua REST từ backend (`httpx`), bucket private, signed URL.
 - **Sửa transcript:** export/summarize luôn đọc `segments` hiện tại trong DB (bản đã sửa). Tóm tắt lại
   sẽ đặt `summary_outdated=false`; không bao giờ tự động gọi LLM sau khi sửa.
 - **Migration:** chưa có Alembic. `db.init_db()` gọi `create_all` → `_add_missing_columns()` (tự
@@ -198,6 +228,18 @@ Lưu ý: pydantic-settings không tự đưa giá trị file `.env` vào `os.env
   nhận biết phiên gộp qua `merge_sources` (UI hiện nhãn "Gộp từ N phiên").
 - Toàn app được bọc `components/ErrorBoundary.jsx` (trong `main.jsx`): lỗi JS của một component sẽ hiện thông báo
   + nút "Tải lại trang" thay vì trang trắng. Cleanup trong `useEffect` không được ném lỗi ra ngoài.
+- Frontend Ghi chú (`pages/NotesPage.jsx`, `components/notes/*`, lazy trong `App.jsx`): kho thư mục + tag dùng chung
+  `hooks/useNoteLibrary.js` (`useNoteLibrary()` + `noteLibraryActions`, cùng mẫu `useGroups`). Tự lưu qua
+  `hooks/useNoteAutosave.js`: debounce 1,2 s (tối đa 8 s khi gõ liên tục), tag/thư mục/giao diện lưu ngay, PATCH chỉ field
+  đã đổi; nháp localStorage `notewave:note-draft:<id>` ghi trước mỗi lần gửi và chỉ xoá khi máy chủ nhận xong → lỗi mạng /
+  Render đang dậy thì giữ nháp + tự thử lại, mở lại note thì áp nháp nếu mới hơn `updated_at`. Tiện ích editor ở
+  `lib/noteEditor.js`. **Bẫy đã gặp:** (1) ProseMirror tự khôi phục mọi thuộc tính DOM bị sửa từ ngoài → hiệu ứng trên
+  node của editor phải dùng `el.animate()` hoặc CSS theo `[data-id]`, không `classList.add`; (2) textarea mount khi tab còn
+  ẩn đo `scrollHeight = 0` → dùng `components/notes/useAutoGrow.js` (ResizeObserver); (3) UniqueID KHÔNG sửa id trùng khi
+  tách một khối (vd. Enter 2 lần giữa danh sách → 2 nửa cùng id) → `lib/blockIdGuard.js` dọn id trùng. Thứ tự extension
+  bắt buộc: `UniqueID` → `BlockIdGuard` → `OrderedListContinuation` (`lib/orderedListContinuation.js`: danh sách số mới /
+  nửa sau khi tách tự đánh số tiếp theo danh sách số phía trên, dừng ở tiêu đề; gõ "N. " giữ số N; nút thanh công cụ
+  "Đánh số lại từ 1" / "Đánh số tiếp").
 - Frontend: state nhóm dùng chung qua `client/src/hooks/useGroups.js` (`useGroups()` + `groupActions`)
   — tạo/đổi tên/xoá/gán nhóm luôn đi qua đây để mọi màn hình cập nhật đồng bộ. Hộp thoại dùng
   `components/Modal.jsx`; xác nhận xoá dùng `components/ConfirmDialog.jsx`.
@@ -226,6 +268,10 @@ Lưu ý: pydantic-settings không tự đưa giá trị file `.env` vào `os.env
   (state cục bộ của `SessionDetail`, mặc định nội dung mở + tóm tắt đóng; nút "Xem tóm tắt" trên toolbar tự mở
   khối tóm tắt rồi cuộn tới). Từ `xl` nút thu gọn bị ẩn và hai khối luôn mở.
   Form (ghi âm, tải lên) giới hạn `max-w-3xl`, danh sách Lịch sử `max-w-4xl`.
+  Trang chi tiết Ghi chú: khung ghi chú CỐ ĐỊNH theo viewport ở MỌI kích thước (người dùng yêu cầu 2026-09-18 — trang ngoài
+  không có thanh cuộn): `useViewportFit({ mobile: true, minHeight: 220 })` (trừ thêm padding dành cho bottom nav, tính theo
+  `visualViewport` khi bàn phím ảo mở); thanh công cụ editor đứng yên, cột câu hỏi / nội dung / dải tóm tắt (từ `lg`, tối
+  đa 30% khung) mỗi vùng tự cuộn; dưới `lg` tab đang chọn chiếm cả khung.
 - Khi thêm agent PydanticAI mới, model provider luôn cấu hình qua biến môi trường
   (dạng chuỗi kiểu `provider:model-name`, ví dụ `anthropic:claude-sonnet-4-6`), không
   hard-code provider trong code.

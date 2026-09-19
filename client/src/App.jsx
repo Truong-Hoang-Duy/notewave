@@ -1,23 +1,37 @@
-import { FileAudio, History, Mic, ScanText, ServerCog } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { FileAudio, History, Mic, NotebookPen, ScanText, ServerCog } from 'lucide-react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import SessionDetail from './components/SessionDetail'
+import { Spinner } from './components/ui'
 import { api, subscribeSlowRequests } from './lib/api'
 import HistoryPage from './pages/HistoryPage'
 import LivePage from './pages/LivePage'
 import ScanPage from './pages/ScanPage'
 import UploadPage from './pages/UploadPage'
 
+// Ghi chú là chunk riêng: trang chi tiết kéo theo Tiptap, chỉ tải khi người dùng mở tab Ghi chú.
+const NotesPage = lazy(() => import('./pages/NotesPage'))
+const NoteDetail = lazy(() => import('./components/notes/NoteDetail'))
+
 const TABS = [
   { id: 'live', label: 'Ghi âm trực tiếp', short: 'Ghi âm', icon: Mic },
   { id: 'upload', label: 'Tải audio', short: 'Audio', icon: FileAudio },
   { id: 'scan', label: 'Quét tài liệu', short: 'Quét', icon: ScanText },
+  { id: 'notes', label: 'Ghi chú', short: 'Ghi chú', icon: NotebookPen },
   { id: 'history', label: 'Lịch sử', short: 'Lịch sử', icon: History },
 ]
 
-/** Router tối giản dựa trên hash: #/live, #/upload, #/scan, #/history, #/history/<id> */
+/** Router tối giản dựa trên hash: #/live, #/upload, #/scan, #/notes, #/notes/<id>, #/history, #/history/<id> */
 function parseHash() {
   const [, tab, id] = window.location.hash.replace(/^#/, '').split('/')
-  return { tab: TABS.some((t) => t.id === tab) ? tab : 'live', id: tab === 'history' ? id || null : null }
+  return { tab: TABS.some((t) => t.id === tab) ? tab : 'live', id: tab === 'history' || tab === 'notes' ? id || null : null }
+}
+
+function PageFallback() {
+  return (
+    <div className="grid place-items-center py-24">
+      <Spinner />
+    </div>
+  )
 }
 
 function useHashRoute() {
@@ -80,7 +94,7 @@ export default function App() {
                   }`}
                 >
                   <tab.icon className="size-4" />
-                  {/* 4 tab: từ md tới dưới lg dùng nhãn ngắn để không tràn header. */}
+                  {/* 5 tab: từ md tới dưới lg dùng nhãn ngắn để không tràn header. */}
                   <span className="lg:hidden">{tab.short}</span>
                   <span className="hidden lg:inline">{tab.label}</span>
                   {tab.id === 'live' && recording && <span className="size-2 animate-rec-pulse rounded-full bg-rec" aria-label="đang ghi" />}
@@ -118,6 +132,15 @@ export default function App() {
         <div hidden={route.tab !== 'scan'}>
           <ScanPage onOpenHistory={() => navigate('history')} onOpenSession={openSession} />
         </div>
+        {route.tab === 'notes' && (
+          <Suspense fallback={<PageFallback />}>
+            {route.id ? (
+              <NoteDetail key={route.id} noteId={route.id} onBack={() => navigate('notes')} onDeleted={() => navigate('notes')} />
+            ) : (
+              <NotesPage onOpen={(id) => navigate(`notes/${id}`)} />
+            )}
+          </Suspense>
+        )}
         {route.tab === 'history' &&
           (route.id ? (
             <SessionDetail
@@ -138,7 +161,7 @@ export default function App() {
         className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
         aria-label="Điều hướng chính"
       >
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {TABS.map((tab) => {
             const active = route.tab === tab.id
             return (

@@ -45,13 +45,14 @@ function detailToMessage(detail, status) {
 
 const NETWORK_ERROR_MESSAGE = 'Không kết nối được tới máy chủ. Kiểm tra mạng rồi thử lại.'
 
-async function request(path, { method = 'GET', json, signal, raw = false } = {}) {
+async function request(path, { method = 'GET', json, signal, raw = false, keepalive = false } = {}) {
   const done = trackSlow()
   let response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
       method,
       signal,
+      keepalive,
       headers: json !== undefined ? { 'Content-Type': 'application/json' } : undefined,
       body: json !== undefined ? JSON.stringify(json) : undefined,
     })
@@ -103,6 +104,31 @@ export const api = {
   createGroup: (name) => request('/api/groups', { method: 'POST', json: { name } }),
   renameGroup: (id, name) => request(`/api/groups/${id}`, { method: 'PATCH', json: { name } }),
   deleteGroup: (id) => request(`/api/groups/${id}`, { method: 'DELETE' }),
+
+  listNotes: ({ q, folderId, tagId, sort, signal } = {}) => {
+    const params = new URLSearchParams()
+    if (q) params.set('q', q)
+    if (folderId) params.set('folder_id', folderId)
+    if (tagId) params.set('tag_id', tagId)
+    if (sort) params.set('sort', sort)
+    params.set('limit', '200')
+    return request(`/api/notes?${params}`, { signal })
+  },
+  getNote: (id, { signal } = {}) => request(`/api/notes/${id}`, { signal }),
+  createNote: (payload = {}) => request('/api/notes', { method: 'POST', json: payload }),
+  /** Autosave: chỉ gửi field đã đổi. `keepalive` dùng khi đóng tab (giới hạn body ~64KB của trình duyệt). */
+  updateNote: (id, patch, { keepalive = false } = {}) => request(`/api/notes/${id}`, { method: 'PATCH', json: patch, keepalive }),
+  deleteNote: (id) => request(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  listNoteFolders: () => request('/api/note-folders'),
+  createNoteFolder: (name, parentId = null) => request('/api/note-folders', { method: 'POST', json: { name, parent_id: parentId } }),
+  updateNoteFolder: (id, patch) => request(`/api/note-folders/${id}`, { method: 'PATCH', json: patch }),
+  deleteNoteFolder: (id) => request(`/api/note-folders/${id}`, { method: 'DELETE' }),
+
+  listTags: () => request('/api/tags'),
+  createTag: (name) => request('/api/tags', { method: 'POST', json: { name } }),
+  renameTag: (id, name) => request(`/api/tags/${id}`, { method: 'PATCH', json: { name } }),
+  deleteTag: (id) => request(`/api/tags/${id}`, { method: 'DELETE' }),
 
   summarizeSession: (id) => request(`/api/sessions/${id}/summarize`, { method: 'POST' }),
   uploadStatus: (id, { signal } = {}) => request(`/api/upload-transcribe/${id}/status`, { signal }),

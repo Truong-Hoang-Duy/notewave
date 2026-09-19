@@ -82,7 +82,7 @@ def check_database() -> str | None:
 
 def init_db() -> None:
     # Import để SQLModel đăng ký bảng trước khi create_all.
-    from app.models import group as _group, session as _session  # noqa: F401
+    from app.models import group as _group, note as _note, session as _session  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
     _add_missing_columns()
