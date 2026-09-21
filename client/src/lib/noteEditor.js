@@ -20,6 +20,7 @@ export const ANCHOR_TYPES = [
 function nodeText(node) {
   if (node.type.name === 'blockMath' || node.type.name === 'inlineMath') return `$${node.attrs.latex}$`
   if (node.type.name === 'image') return `[Ảnh${node.attrs.alt ? `: ${node.attrs.alt}` : ''}]`
+  if (node.type.name === 'noteLink') return `[[${node.attrs.title}]]`
   if (node.isText) return node.text
   let out = ''
   node.forEach((child, _offset, index) => {

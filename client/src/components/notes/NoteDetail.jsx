@@ -1,4 +1,17 @@
-import { ArrowLeft, BookOpenCheck, Check, CloudOff, FileText, GraduationCap, ListTree, Loader2, MoreHorizontal, NotebookText, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  BookOpenCheck,
+  Check,
+  CloudOff,
+  FileText,
+  GraduationCap,
+  ListTree,
+  Loader2,
+  MoreHorizontal,
+  NotebookText,
+  SpellCheck,
+  Trash2,
+} from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { refreshNoteLibrary } from '../../hooks/useNoteLibrary'
 import { useViewportFit } from '../../hooks/useViewportFit'
@@ -6,17 +19,26 @@ import { clearNoteDraft, readNoteDraft, useNoteAutosave } from '../../hooks/useN
 import { api } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { noteStyleVars } from '../../lib/noteStyles'
+import { applyProofreadSuggestions } from '../../lib/noteProofread'
 import ConfirmDialog from '../ConfirmDialog'
 import { useToast } from '../Toast'
 import { Button, ErrorState, Spinner } from '../ui'
 import { blockText, collectBlockIds, newCueId, revealBlock } from '../../lib/noteEditor'
 import CueColumn from './CueColumn'
 import FolderSelect from './FolderSelect'
+import NoteAiPanel from './NoteAiPanel'
 import NoteContentEditor from './NoteContentEditor'
+import NoteLinksPanel from './NoteLinksPanel'
 import NoteStylePicker from './NoteStylePicker'
+import ProofreadDialog from './ProofreadDialog'
 import TagPicker from './TagPicker'
 import { useAutoGrow } from './useAutoGrow'
 import { useDismiss } from './useDismiss'
+
+const SUMMARY_TABS = [
+  { id: 'mine', label: 'Của bạn' },
+  { id: 'ai', label: 'AI' },
+]
 
 const MOBILE_TABS = [
   { id: 'content', label: 'Nội dung', icon: FileText },
@@ -153,6 +175,13 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
   const [blockIds, setBlockIds] = useState(() => new Set())
   const [studyMode, setStudyMode] = useState(false)
   const [mobileTab, setMobileTab] = useState('content')
+  // GĐ3: tóm tắt AI (cột riêng với tóm tắt tự viết), liên kết [[...]] và soát lỗi chính tả.
+  const [summaryTab, setSummaryTab] = useState('mine')
+  const [aiSummary, setAiSummary] = useState(initialNote.ai_summary)
+  const [aiOutdated, setAiOutdated] = useState(initialNote.ai_summary_outdated)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [links, setLinks] = useState(null)
+  const [proofread, setProofread] = useState(null) // { loading, result } khi hộp thoại soát lỗi đang mở
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -177,12 +206,27 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
     return patch
   }, [])
 
-  const onSaved = useCallback((saved, patch) => {
-    setUpdatedAt(saved.updated_at)
-    // Số note trong thư mục / tag thay đổi -> cập nhật kho dùng chung (sidebar danh sách).
-    if ('tag_ids' in patch || 'folder_id' in patch) refreshNoteLibrary()
-  }, [])
-  const { status, error, markDirty, cancel } = useNoteAutosave(noteId, collect, { onSaved })
+  const loadLinks = useCallback(
+    (signal) => api.noteLinks(noteId, { signal }).then(setLinks).catch(() => {}),
+    [noteId],
+  )
+  useEffect(() => {
+    const controller = new AbortController()
+    loadLinks(controller.signal)
+    return () => controller.abort()
+  }, [loadLinks])
+
+  const onSaved = useCallback(
+    (saved, patch) => {
+      setUpdatedAt(saved.updated_at)
+      // Số note trong thư mục / tag thay đổi -> cập nhật kho dùng chung (sidebar danh sách).
+      if ('tag_ids' in patch || 'folder_id' in patch) refreshNoteLibrary()
+      // Backend tính lại liên kết [[...]] mỗi lần nội dung được lưu -> lấy danh sách mới.
+      if ('content_md' in patch) loadLinks()
+    },
+    [loadLinks],
+  )
+  const { status, error, markDirty, flush, cancel } = useNoteAutosave(noteId, collect, { onSaved })
 
   // Khôi phục nháp (xem NoteDetail): đánh dấu các field trong nháp để lưu lại lên máy chủ.
   const restored = useRef(false)
@@ -204,6 +248,7 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
   const onContentChange = useCallback(
     (e) => {
       markDirty('content')
+      setAiOutdated(true) // chỉ có ý nghĩa khi đã có tóm tắt AI; NoteAiPanel tự quyết định hiện cảnh báo hay không
       clearTimeout(blockIdsTimer.current)
       blockIdsTimer.current = setTimeout(() => setBlockIds(collectBlockIds(e)), 300)
     },
@@ -231,6 +276,57 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
     requestAnimationFrame(() => {
       if (!revealBlock(editor, id)) toast.error('Không tìm thấy đoạn được neo — có thể đã bị xoá.')
     })
+  }
+
+  const generateAiSummary = async () => {
+    setSummaryTab('ai')
+    setAiLoading(true)
+    try {
+      await flush() // nội dung mới nhất phải nằm trên máy chủ trước khi AI đọc
+      const created = await api.aiSummarizeNote(noteId)
+      setAiSummary(created)
+      setAiOutdated(false)
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  /** Thêm câu hỏi ôn tập do AI đề xuất vào cột câu hỏi (bỏ câu đã có, giữ lại một ô trống ở cuối để gõ tiếp). */
+  const addQuestions = (questions) => {
+    const existing = cues.filter((c) => c.text.trim())
+    const known = new Set(existing.map((c) => c.text.trim().toLowerCase()))
+    const added = questions.filter((q) => !known.has(q.trim().toLowerCase()))
+    if (!added.length) {
+      toast.success('Các câu hỏi này đã có trong cột câu hỏi.')
+      return
+    }
+    changeCues([...existing, ...added.map((text) => ({ id: newCueId(), text, anchor: null })), { id: newCueId(), text: '', anchor: null }])
+    toast.success(added.length === 1 ? 'Đã thêm 1 câu hỏi vào cột câu hỏi.' : `Đã thêm ${added.length} câu hỏi vào cột câu hỏi.`)
+  }
+
+  const runProofread = async () => {
+    setProofread({ loading: true, result: null })
+    try {
+      await flush()
+      const result = await api.proofreadNote(noteId)
+      setProofread({ loading: false, result })
+    } catch (err) {
+      setProofread(null)
+      toast.error(err.message)
+    }
+  }
+
+  const applyProofread = (picked) => {
+    setProofread(null)
+    const changed = applyProofreadSuggestions(editor, picked)
+    if (!changed) {
+      toast.error('Những chỗ này vừa thay đổi nên không áp dụng được nữa. Hãy soát lỗi lại.')
+      return
+    }
+    markDirty('content', { immediate: true })
+    toast.success(`Đã sửa ${changed} chỗ trong nội dung. Ctrl+Z để hoàn tác.`)
   }
 
   const doDelete = async () => {
@@ -288,6 +384,16 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
           title="Che nội dung, tự trả lời các câu hỏi ở cột trái"
         >
           <span className="hidden sm:inline">Ôn tập</span>
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={SpellCheck}
+          onClick={runProofread}
+          disabled={studyMode || Boolean(proofread)}
+          title="AI soát lỗi chính tả trong phần nội dung (bạn duyệt từng chỗ trước khi sửa)"
+        >
+          <span className="hidden sm:inline">Soát lỗi</span>
         </Button>
         <NoteStylePicker
           style={style}
@@ -378,6 +484,7 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
               onGoTo={goToBlock}
               getAnswer={(id) => blockText(editor, id)}
             />
+            <NoteLinksPanel links={links} />
           </section>
           <section className={`relative min-h-0 min-w-0 flex-1 flex-col ${panel('content')}`} aria-label="Nội dung chi tiết">
             <div
@@ -410,24 +517,67 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
         </div>
         {/* Tóm tắt: từ lg là dải dưới cao tối đa 30% khung (cuộn bên trong); dưới lg là tab riêng chiếm cả khung */}
         <section
-          className={`scroll-area min-h-0 flex-col overflow-y-auto overscroll-contain border-[var(--note-line)] px-5 py-4 sm:px-8 lg:max-h-[30%] lg:shrink-0 lg:border-t ${
-            mobileTab === 'summary' ? 'flex flex-1' : 'hidden lg:flex'
-          }`}
+          // Tab AI có nhiều mục (ý chính / khái niệm / câu hỏi) nên dải tóm tắt được cao hơn một chút; vẫn cuộn bên
+          // trong nên khung ghi chú giữ nguyên chiều cao theo viewport.
+          className={`min-h-0 flex-col border-[var(--note-line)] px-5 pt-3 pb-4 sm:px-8 lg:shrink-0 lg:border-t ${
+            summaryTab === 'ai' ? 'lg:max-h-[45%]' : 'lg:max-h-[30%]'
+          } ${mobileTab === 'summary' ? 'flex flex-1' : 'hidden lg:flex'}`}
           aria-label="Tóm tắt"
         >
-          <h2 className="mb-2 text-[11.5px] font-semibold tracking-[0.08em] text-[var(--note-muted)] uppercase">Tóm tắt</h2>
-          <div className={studyMode ? 'pointer-events-none blur-[5px] select-none' : ''}>
-            <AutoGrowSummary
-              value={summary}
-              disabled={studyMode}
-              onChange={(v) => {
-                setSummary(v)
-                markDirty('summary')
-              }}
-            />
+          {/* 2 tab: tóm tắt người học tự viết và tóm tắt AI (cột dữ liệu riêng, không ghi đè nhau) */}
+          <div className="mb-2 flex shrink-0" role="tablist" aria-label="Kiểu tóm tắt">
+            {SUMMARY_TABS.map((t) => (
+              <button
+                key={t.id}
+                role="tab"
+                aria-selected={summaryTab === t.id}
+                onClick={() => setSummaryTab(t.id)}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold tracking-[0.06em] uppercase transition-colors ${
+                  summaryTab === t.id ? 'bg-[var(--note-soft)] text-[var(--note-fg)]' : 'text-[var(--note-muted)] hover:text-[var(--note-fg)]'
+                }`}
+              >
+                {t.label}
+                {t.id === 'ai' && aiSummary && aiOutdated && (
+                  <span className="size-1.5 rounded-full bg-warn" title="Nội dung đã đổi sau lần tóm tắt gần nhất" />
+                )}
+              </button>
+            ))}
+          </div>
+          <div
+            className={`scroll-area min-h-0 flex-1 overflow-y-auto overscroll-contain ${
+              studyMode ? 'pointer-events-none blur-[5px] select-none' : ''
+            }`}
+          >
+            {summaryTab === 'mine' ? (
+              <AutoGrowSummary
+                value={summary}
+                disabled={studyMode}
+                onChange={(v) => {
+                  setSummary(v)
+                  markDirty('summary')
+                }}
+              />
+            ) : (
+              <NoteAiPanel
+                summary={aiSummary}
+                outdated={aiOutdated}
+                loading={aiLoading}
+                onGenerate={generateAiSummary}
+                onAddQuestion={(q) => addQuestions([q])}
+                onAddAllQuestions={addQuestions}
+              />
+            )}
           </div>
         </section>
       </div>
+
+      <ProofreadDialog
+        open={Boolean(proofread)}
+        loading={proofread?.loading ?? false}
+        result={proofread?.result}
+        onApply={applyProofread}
+        onClose={() => setProofread(null)}
+      />
 
       <ConfirmDialog
         open={confirmDelete}

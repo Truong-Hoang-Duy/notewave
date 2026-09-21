@@ -60,7 +60,16 @@ def clean_tables(client):
     # Chặn cứng: không bao giờ TRUNCATE nếu engine không trỏ vào schema test.
     assert db.current_schema() == TEST_SCHEMA != "public"
     with engine.begin() as conn:
-        tables = ("note_sessions", "session_groups", "notes", "note_folders", "note_tags", "note_tag_links", "note_assets")
+        tables = (
+            "note_sessions",
+            "session_groups",
+            "notes",
+            "note_folders",
+            "note_tags",
+            "note_tag_links",
+            "note_assets",
+            "note_links",
+        )
         conn.execute(text("TRUNCATE " + ", ".join(qualified(t) for t in tables)))
     app.dependency_overrides.clear()
 

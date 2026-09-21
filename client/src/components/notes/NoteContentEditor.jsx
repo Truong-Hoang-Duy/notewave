@@ -21,6 +21,7 @@ import {
   Heading3,
   ImagePlus,
   Italic,
+  Link2,
   List,
   ListChecks,
   ListOrdered,
@@ -40,15 +41,18 @@ import {
   Underline,
   Undo2,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { refreshNoteLibrary } from '../../hooks/useNoteLibrary'
 import { api } from '../../lib/api'
 import { BlockIdGuard } from '../../lib/blockIdGuard'
 import { ANCHOR_TYPES, blockIdAtSelection } from '../../lib/noteEditor'
 import { ImageUploadPlaceholder, isImageFile, NoteImage, uploadImages } from '../../lib/noteImages'
+import { NoteLink, NoteLinkSuggestion } from '../../lib/noteLink'
 import { orderedListAtSelection, OrderedListContinuation, toggleOrderedListNumbering } from '../../lib/orderedListContinuation'
 import { useToast } from '../Toast'
 import DrawFormulaDialog from './DrawFormulaDialog'
 import MathDialog from './MathDialog'
+import NoteLinkMenu from './NoteLinkMenu'
 
 // Có Supabase Storage hay chưa (health `note_images_configured`) — hỏi 1 lần cho cả phiên làm việc.
 let imagesConfigured = null
@@ -90,7 +94,7 @@ function ToolButton({ icon: Icon, label, active, disabled, onClick }) {
 
 const Divider = () => <span className="mx-1 h-5 w-px shrink-0 bg-[var(--note-line)]" aria-hidden="true" />
 
-function Toolbar({ editor, onImage, onMath, onDraw, imagesDisabledReason }) {
+function Toolbar({ editor, onImage, onMath, onDraw, onNoteLink, imagesDisabledReason }) {
   const s = useEditorState({
     editor,
     selector: ({ editor: e }) => {
@@ -151,6 +155,7 @@ function Toolbar({ editor, onImage, onMath, onDraw, imagesDisabledReason }) {
           onClick={run((c) => c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }))}
         />
         <ToolButton icon={Sigma} label="Chèn công thức (LaTeX)" onClick={onMath} />
+        <ToolButton icon={Link2} label="Liên kết tới ghi chú khác (hoặc gõ [[ )" onClick={onNoteLink} />
         <ToolButton icon={PenLine} label="Vẽ công thức bằng tay → LaTeX" onClick={onDraw} />
         <Divider />
         <ToolButton icon={Quote} label="Trích dẫn" active={s.quote} onClick={run((c) => c.toggleBlockquote())} />
@@ -190,6 +195,26 @@ export default function NoteContentEditor({ noteId, initialContent, editable = t
   const imagesConfigured = useImagesConfigured()
   const [mathDialog, setMathDialog] = useState(null) // { latex, mode, pos?, editing, warning? }
   const [drawOpen, setDrawOpen] = useState(false)
+  // Gợi ý liên kết [[...]]: plugin trong editor báo ra đây qua `linkHandlers` (object giữ nguyên tham chiếu cả vòng đời).
+  const [linkSuggest, setLinkSuggest] = useState(null)
+  const linkApi = useRef({ onChange: null, onKeyDown: null }).current
+  linkApi.onChange = setLinkSuggest
+  // `configure()` của Tiptap deep-clone options, nên KHÔNG truyền thẳng object rồi sửa sau (bản sao sẽ không thấy).
+  // Truyền 2 hàm cố định: hàm được sao chép theo tham chiếu nên vẫn gọi tới `linkApi` mới nhất.
+  const linkBridge = useRef({
+    onChange: (next) => linkApi.onChange?.(next),
+    onKeyDown: (event) => linkApi.onKeyDown?.(event) ?? false,
+  }).current
+  // Menu gợi ý đăng ký hàm xử lý phím ↑ ↓ Enter/Tab mỗi lần render (để thấy lựa chọn đang sáng mới nhất).
+  const registerLinkKeys = useCallback(
+    (fn) => {
+      linkApi.onKeyDown = fn
+      return () => {
+        linkApi.onKeyDown = null
+      }
+    },
+    [linkApi],
+  )
   const fileInput = useRef(null)
   const callbacks = useRef({ onChange, onActiveBlockChange })
   const ctx = useRef({ noteId, toast, imagesConfigured, editor: null })
@@ -222,6 +247,8 @@ export default function NoteContentEditor({ noteId, initialContent, editable = t
       TableKit.configure({ table: { resizable: true, cellMinWidth: 96, lastColumnResizable: false } }),
       NoteImage,
       ImageUploadPlaceholder,
+      NoteLink,
+      NoteLinkSuggestion.configure({ handlers: linkBridge }),
       Mathematics.configure({
         katexOptions: { throwOnError: false },
         // Bấm vào công thức có sẵn -> mở hộp thoại sửa.
@@ -310,6 +337,8 @@ export default function NoteContentEditor({ noteId, initialContent, editable = t
             imagesDisabledReason={imagesConfigured === false ? 'Chưa cấu hình kho lưu ảnh (Supabase Storage) nên chưa chèn được ảnh' : null}
             onImage={() => fileInput.current?.click()}
             onMath={() => setMathDialog({ latex: '', mode: 'block', editing: false })}
+            // Gõ hộ "[[" -> plugin gợi ý tự mở, không cần đường đi riêng cho nút này.
+            onNoteLink={() => editor.chain().focus().insertContent('[[').run()}
             onDraw={() => setDrawOpen(true)}
           />
         </div>
@@ -338,6 +367,19 @@ export default function NoteContentEditor({ noteId, initialContent, editable = t
       >
         <EditorContent editor={editor} className="note-content px-5 py-5 sm:px-8" />
       </div>
+      {linkSuggest && (
+        <NoteLinkMenu
+          editor={editor}
+          state={linkSuggest}
+          currentNoteId={noteId}
+          registerKeys={registerLinkKeys}
+          onCreated={(created) => {
+            refreshNoteLibrary()
+            toast.success(`Đã tạo ghi chú “${created.title}” và chèn liên kết.`)
+          }}
+          onError={(message) => toast.error(message)}
+        />
+      )}
       {mathDialog && (
         <MathDialog
           initial={mathDialog}

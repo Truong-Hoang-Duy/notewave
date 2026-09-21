@@ -123,13 +123,13 @@ export const api = {
   renameGroup: (id, name) => request(`/api/groups/${id}`, { method: 'PATCH', json: { name } }),
   deleteGroup: (id) => request(`/api/groups/${id}`, { method: 'DELETE' }),
 
-  listNotes: ({ q, folderId, tagId, sort, signal } = {}) => {
+  listNotes: ({ q, folderId, tagId, sort, limit = 200, signal } = {}) => {
     const params = new URLSearchParams()
     if (q) params.set('q', q)
     if (folderId) params.set('folder_id', folderId)
     if (tagId) params.set('tag_id', tagId)
     if (sort) params.set('sort', sort)
-    params.set('limit', '200')
+    params.set('limit', String(limit))
     return request(`/api/notes?${params}`, { signal })
   },
   getNote: (id, { signal } = {}) => request(`/api/notes/${id}`, { signal }),
@@ -137,6 +137,13 @@ export const api = {
   /** Autosave: chỉ gửi field đã đổi. `keepalive` dùng khi đóng tab (giới hạn body ~64KB của trình duyệt). */
   updateNote: (id, patch, { keepalive = false } = {}) => request(`/api/notes/${id}`, { method: 'PATCH', json: patch, keepalive }),
   deleteNote: (id) => request(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  /** Liên kết [[...]] của ghi chú: `{ incoming, outgoing }` (backend tính lại mỗi lần lưu nội dung). */
+  noteLinks: (id, { signal } = {}) => request(`/api/notes/${id}/links`, { signal }),
+  /** Tóm tắt AI cho ghi chú (ý chính / khái niệm / câu hỏi ôn tập) — chỉ gọi khi người dùng bấm. */
+  aiSummarizeNote: (id) => request(`/api/notes/${id}/ai-summary`, { method: 'POST' }),
+  /** Soát lỗi chính tả nội dung ghi chú -> danh sách đề xuất; backend KHÔNG tự sửa, frontend mới thay chữ. */
+  proofreadNote: (id) => request(`/api/notes/${id}/proofread`, { method: 'POST' }),
 
   /** Tải 1 ảnh vào note (Supabase Storage). Trả { id, url (tương đối), ... }. */
   uploadNoteImage: (noteId, file, options) => uploadWithProgress(`/api/notes/${noteId}/images`, { file }, options),

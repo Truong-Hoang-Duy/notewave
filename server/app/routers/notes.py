@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -5,11 +6,28 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import delete, func
 from sqlmodel import col, select
 
-from app.dependencies import DbDep, StorageDep
-from app.models.note import Note, NoteCreate, NoteList, NoteRead, NoteSort, NoteTagLink, NoteUpdate
+from app.dependencies import DbDep, SettingsDep, StorageDep
+from app.models.common import utcnow
+from app.models.note import (
+    Note,
+    NoteAiSummary,
+    NoteCreate,
+    NoteLinks,
+    NoteList,
+    NoteRead,
+    NoteSort,
+    NoteTagLink,
+    NoteUpdate,
+    ProofreadResult,
+    content_hash,
+)
+from app.services.note_links import delete_links_of, get_links, sync_note_links
 from app.services.note_media import delete_note_images, purge_orphan_images, sync_note_images
+from app.services.note_proofread_agent import proofread_note
+from app.services.note_summary_agent import summarize_note
 from app.services.notes import get_folder_or_404, get_note_or_404, list_items, read_note, set_note_tags
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 
 DISPLAY_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -104,6 +122,7 @@ async def update_note(note_id: str, payload: NoteUpdate, db: DbDep, storage: Sto
     db.add(note)
     if content_changed:
         sync_note_images(db, note)  # ảnh bị xoá khỏi nội dung -> đánh dấu chờ xoá; ảnh xuất hiện lại -> bỏ đánh dấu
+        sync_note_links(db, note)  # tính lại liên kết [[...]] đi ra của note này
     db.commit()
     if content_changed:
         await purge_orphan_images(db, storage)  # xoá thật các ảnh đã chờ quá thời gian (của mọi note)
@@ -113,11 +132,58 @@ async def update_note(note_id: str, payload: NoteUpdate, db: DbDep, storage: Sto
 
 @router.delete("/{note_id}", status_code=204)
 async def delete_note(note_id: str, db: DbDep, storage: StorageDep) -> Response:
-    """Xoá note + tag liên kết + ảnh của note (Supabase Storage)."""
+    """Xoá note + tag liên kết + liên kết [[...]] + ảnh của note (Supabase Storage)."""
     note = get_note_or_404(db, note_id)
     await delete_note_images(db, storage, note_id)
     db.exec(delete(NoteTagLink).where(col(NoteTagLink.note_id) == note_id))  # type: ignore[call-overload]
+    delete_links_of(db, note_id)
     db.delete(note)
     db.commit()
     await purge_orphan_images(db, storage)
     return Response(status_code=204)
+
+
+@router.get("/{note_id}/links", response_model=NoteLinks)
+def note_links(note_id: str, db: DbDep) -> NoteLinks:
+    """Liên kết [[...]] của note: `incoming` = note khác trỏ tới note này (backlink), `outgoing` = note này trỏ tới."""
+    get_note_or_404(db, note_id)
+    return get_links(db, note_id)
+
+
+@router.post("/{note_id}/ai-summary", response_model=NoteAiSummary)
+async def create_ai_summary(note_id: str, db: DbDep, settings: SettingsDep) -> NoteAiSummary:
+    """Tạo (hoặc tạo lại) tóm tắt AI cho ghi chú — chỉ chạy khi người dùng bấm. Lưu vào cột riêng `ai_summary`,
+    không đụng tới phần tóm tắt người học tự viết."""
+    note = get_note_or_404(db, note_id)
+    if not note.content_md.strip():
+        raise HTTPException(status_code=422, detail="Ghi chú chưa có nội dung để tóm tắt.")
+    cues = [str(c.get("text", "")) for c in note.cues]
+    try:
+        output = await summarize_note(note.title, note.content_md, cues)
+    except Exception as exc:  # Lỗi provider LLM rất đa dạng (thiếu key, quota, timeout...)
+        logger.exception("Tóm tắt AI thất bại cho note %s", note_id)
+        raise HTTPException(
+            status_code=502,
+            detail="Không tạo được tóm tắt AI. Kiểm tra cấu hình SUMMARY_MODEL / API key của LLM.",
+        ) from exc
+    summary = NoteAiSummary(
+        **output.model_dump(),
+        model=settings.summary_model,
+        generated_at=utcnow(),
+        source_hash=content_hash(note.content_md),
+    )
+    # Không gọi note.touch(): tóm tắt AI không phải người dùng sửa ghi chú, không đẩy note lên đầu danh sách.
+    note.ai_summary = summary.model_dump(mode="json")
+    db.add(note)
+    db.commit()
+    return summary
+
+
+@router.post("/{note_id}/proofread", response_model=ProofreadResult)
+async def proofread(note_id: str, db: DbDep) -> ProofreadResult:
+    """Soát lỗi chính tả nội dung ghi chú (tiếng Việt + tiếng Anh) — chỉ chạy khi người dùng bấm. Backend chỉ ĐỀ XUẤT;
+    frontend mới thay chữ trong editor sau khi người dùng duyệt từng mục."""
+    note = get_note_or_404(db, note_id)
+    if not note.content_md.strip():
+        raise HTTPException(status_code=422, detail="Ghi chú chưa có nội dung để soát lỗi.")
+    return await proofread_note(note.content_md)

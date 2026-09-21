@@ -5,6 +5,7 @@ Note là đối tượng độc lập với phiên ghi âm/OCR (không liên k�
 router tự dọn liên kết khi xoá thư mục / tag / note.
 """
 
+import hashlib
 import re
 import uuid
 from datetime import datetime
@@ -57,6 +58,17 @@ class NoteTagLink(SQLModel, table=True):
     tag_id: str = Field(primary_key=True, max_length=32, index=True)
 
 
+class NoteLink(SQLModel, table=True):
+    """Liên kết `[[...]]` từ note này sang note khác. Backend tính lại toàn bộ liên kết của note nguồn mỗi lần nội dung
+    được lưu (`services/note_links.py`) — bảng chỉ là chỉ mục để tra ngược (backlink) cho nhanh, nguồn sự thật vẫn là
+    `content_md`. Không khai báo FK ở mức DB (giống các bảng khác): router tự dọn khi xoá note."""
+
+    __tablename__ = "note_links"
+
+    source_id: str = Field(primary_key=True, max_length=32)
+    target_id: str = Field(primary_key=True, max_length=32, index=True)
+
+
 class Note(SQLModel, table=True):
     __tablename__ = "notes"
 
@@ -68,8 +80,11 @@ class Note(SQLModel, table=True):
     # Cột phải: JSON của Tiptap (để mở lại editor) + Markdown do frontend sinh (backend dùng cho tìm kiếm/export/AI).
     content_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     content_md: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
-    # Dải dưới: tóm tắt người học TỰ viết (tóm tắt AI sẽ là cột riêng ở giai đoạn sau).
+    # Dải dưới: tóm tắt người học TỰ viết (tóm tắt AI nằm ở cột riêng `ai_summary`, không bao giờ ghi đè cột này).
     summary: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
+    # Tóm tắt do AI tạo (JSONB của `NoteAiSummary`): ý chính, khái niệm, câu hỏi ôn tập + `source_hash` của nội dung lúc
+    # tạo, nhờ vậy biết bản tóm tắt đã cũ so với nội dung hiện tại mà không cần thêm cột cờ.
+    ai_summary: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     style: dict[str, Any] | None = Field(default=None, sa_column=Column(JSONB, nullable=True))
     # Gộp tiêu đề + câu hỏi + nội dung + tóm tắt thành chữ thường để tìm kiếm bằng 1 điều kiện LIKE.
     search_text: str = Field(default="", sa_column=Column(Text, nullable=False, default=""))
@@ -108,6 +123,77 @@ class FolderRef(BaseModel):
 class TagRef(BaseModel):
     id: str
     name: str
+
+
+# ---- GĐ3: tóm tắt AI + soát lỗi chính tả + liên kết giữa các ghi chú ----
+
+
+def content_hash(content_md: str) -> str:
+    """Vân tay của nội dung lúc tạo tóm tắt AI — đổi nội dung thì `ai_summary_outdated` tự bật, không cần cột cờ."""
+    return hashlib.sha1(content_md.encode("utf-8")).hexdigest()[:16]
+
+
+class NoteConcept(BaseModel):
+    term: str = PydanticField(description="Thuật ngữ / khái niệm xuất hiện trong ghi chú")
+    meaning: str = PydanticField(description="Giải thích ngắn gọn theo đúng cách ghi chú trình bày")
+
+
+class NoteAiSummaryOutput(BaseModel):
+    """Output có cấu trúc của `note_summary_agent` (LLM)."""
+
+    summary: str = PydanticField(description="Tóm tắt bài học trong 3-5 câu")
+    key_points: list[str] = PydanticField(default_factory=list, description="Các ý chính, mỗi ý một câu ngắn")
+    concepts: list[NoteConcept] = PydanticField(default_factory=list, description="Khái niệm / thuật ngữ cần nhớ")
+    review_questions: list[str] = PydanticField(
+        default_factory=list, description="Câu hỏi ôn tập bám sát nội dung, có thể trả lời được bằng chính ghi chú"
+    )
+
+
+class NoteAiSummary(NoteAiSummaryOutput):
+    """Bản lưu trong cột JSONB `notes.ai_summary` (và cũng là response của endpoint tạo tóm tắt)."""
+
+    model: str
+    generated_at: datetime
+    source_hash: str
+
+
+class ProofreadSuggestion(BaseModel):
+    """Một chỗ sửa chính tả do `note_proofread_agent` đề xuất; người dùng duyệt từng mục ở frontend rồi frontend mới
+    thay chữ trong editor (backend KHÔNG tự sửa nội dung vì nội dung thật nằm ở Tiptap JSON)."""
+
+    original: str = PydanticField(description="Từ/cụm từ viết sai, chép NGUYÊN VĂN như trong ghi chú")
+    corrected: str = PydanticField(description="Cách viết đúng để thay thế")
+    context: str | None = PydanticField(default=None, description="Câu ngắn chứa từ đó, chép nguyên văn")
+    reason: str | None = PydanticField(default=None, description="Lý do rất ngắn bằng tiếng Việt, vd 'thiếu dấu'")
+
+
+class ProofreadOutput(BaseModel):
+    suggestions: list[ProofreadSuggestion] = PydanticField(
+        default_factory=list, description="Danh sách chỗ sửa; rỗng nếu không có lỗi nào"
+    )
+
+
+class ProofreadItem(ProofreadSuggestion):
+    id: str
+    occurrences: int = PydanticField(description="Số lần từ này xuất hiện trong nội dung (sẽ được thay ở mọi chỗ)")
+
+
+class ProofreadResult(BaseModel):
+    suggestions: list[ProofreadItem]
+    error: str | None = None  # LLM lỗi một phần: vẫn trả các đề xuất lấy được kèm cảnh báo
+
+
+class NoteLinkRef(BaseModel):
+    """Một note ở đầu kia của liên kết (dùng cho cả liên kết đi ra và backlink)."""
+
+    id: str
+    title: str
+    folder: FolderRef | None = None
+
+
+class NoteLinks(BaseModel):
+    incoming: list[NoteLinkRef]  # note khác đang trỏ tới note này (backlink)
+    outgoing: list[NoteLinkRef]  # note mà nội dung note này đang trỏ tới
 
 
 class NoteCreate(BaseModel):
@@ -173,12 +259,16 @@ class NoteRead(BaseModel):
     content_json: dict[str, Any] | None
     content_md: str
     summary: str
+    ai_summary: NoteAiSummary | None
+    # Nội dung đã đổi sau lần tạo tóm tắt AI gần nhất -> UI mời tạo lại (không bao giờ tự gọi LLM).
+    ai_summary_outdated: bool
     style: NoteStyle
     created_at: datetime
     updated_at: datetime
 
     @classmethod
     def from_db(cls, n: Note, folder: NoteFolder | None, tags: list[NoteTag]) -> "NoteRead":
+        ai_summary = NoteAiSummary.model_validate(n.ai_summary) if n.ai_summary else None
         return cls(
             id=n.id,
             title=n.title,
@@ -188,6 +278,8 @@ class NoteRead(BaseModel):
             content_json=n.content_json,
             content_md=n.content_md,
             summary=n.summary,
+            ai_summary=ai_summary,
+            ai_summary_outdated=bool(ai_summary and ai_summary.source_hash != content_hash(n.content_md)),
             style=NoteStyle.model_validate(n.style or {}),
             created_at=aware(n.created_at),
             updated_at=aware(n.updated_at),

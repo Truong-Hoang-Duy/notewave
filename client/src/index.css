@@ -220,6 +220,24 @@
     text-decoration: underline;
     text-underline-offset: 2px;
   }
+  /* Liên kết [[...]] tới ghi chú khác: chip bấm được, không gạch chân như link thường */
+  .note-prose a.note-link {
+    text-decoration: none;
+    background: color-mix(in srgb, var(--note-soft) 70%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--note-accent) 35%, transparent);
+    border-radius: 0.3em;
+    padding: 0.05em 0.3em;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .note-prose a.note-link:hover {
+    background: var(--note-soft);
+    border-bottom-color: var(--note-accent);
+  }
+  .note-prose a.note-link.ProseMirror-selectednode {
+    outline: 2px solid color-mix(in srgb, var(--note-accent) 55%, transparent);
+    outline-offset: 1px;
+  }
   /* Bảng */
   .note-prose table {
     width: 100%;

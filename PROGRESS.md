@@ -849,10 +849,10 @@
 ### Lộ trình Ghi chú (nguồn duy nhất — cập nhật trạng thái tại đây)
 - **GĐ1 — Nền tảng** (xong 2026-09-18): note / thư mục cây / tag, CRUD + tìm/lọc/sắp xếp, layout Cornell, editor Tiptap,
   tự lưu + nháp cục bộ, giao diện riêng từng note, chế độ ôn tập.
-- **GĐ2 — Nội dung phong phú** (xong 2026-09-19, chờ người dùng thêm `SUPABASE_SECRET_KEY` để chạy ảnh thật): chèn ảnh (Supabase Storage qua REST từ backend, bucket private), bảng, công thức toán KaTeX
+- **GĐ2 — Nội dung phong phú** (xong 2026-09-19; **đã chạy thử với Supabase Storage THẬT ngày 2026-09-21** — xem mục cuối file): chèn ảnh (Supabase Storage qua REST từ backend, bucket private), bảng, công thức toán KaTeX
   (dùng chung cho `OcrDocumentView`), vẽ tay công thức → Mistral OCR → LaTeX (kết luận Thử nghiệm 1: cắt sát nét, gửi data
   URI, chuẩn hoá dấu bọc, luôn xem trước + sửa trước khi chèn), dán nội dung có định dạng / dán ảnh trực tiếp.
-- **GĐ3 — Liên kết & AI:** backlink giữa các note (`[[...]]`, backend tự tính lại liên kết mỗi lần lưu, panel "note trỏ
+- **GĐ3 — Liên kết & AI** (xong 2026-09-21): backlink giữa các note (`[[...]]`, backend tự tính lại liên kết mỗi lần lưu, panel "note trỏ
   tới note này"); tóm tắt AI bằng agent `NoteSummary` riêng (ý chính, khái niệm, câu hỏi ôn tập; dùng chung
   `SUMMARY_MODEL`), cột `ai_summary` tách khỏi tóm tắt tự viết; gợi ý sửa lỗi chính tả cho nội dung note (mẫu
   `ocr_review_agent`, chạy khi người dùng bấm, không chạy mỗi lần lưu). Không có "tạo note từ phiên" (đã bỏ).
@@ -999,3 +999,109 @@
   "Hộp thoại vừa màn hình" trên DB thật. Đã kiểm tra chỉ-đọc: note thử đã bị xoá (0 bản ghi), note thật còn nguyên, không có ảnh.
   Từ nay kiểm thử UI của agent chạy ở cổng riêng (backend 8001, Vite 5174 qua `createServer`, không sửa `vite.config.js`) và bộ
   điều khiển trình duyệt từ chối chạy nếu backend không phải launcher kiểm thử (thiếu route `/__fake_storage_list`).
+
+## [2026-09-21] — Ghi chú: chạy thử ảnh với Supabase Storage THẬT (chốt phần còn treo của GĐ2)
+- Bối cảnh: GĐ2 đã xong về code từ 2026-09-19 nhưng ảnh mới chỉ chạy với Storage giả lập; người dùng đã điền
+  `SUPABASE_SECRET_KEY` (khoá `sb_secret_...`) vào `.env` → phiên này kiểm chứng toàn bộ vòng đời ảnh trên Storage thật.
+- Cách chạy (không sửa code, không đụng dữ liệu thật):
+  - Kịch bản 1 — API end-to-end (`TestClient` + Storage THẬT, DB ở schema `notewave_test`): tạo note → tải ảnh PNG thật
+    (tự sinh bằng zlib, không phải magic bytes giả) → kiểm tra bucket / signed URL / vòng đời dọn ảnh → xoá sạch.
+  - Kịch bản 2 — trình duyệt thật: backend thật ở cổng 8001 (schema test, Storage thật) + Chrome headless mở trang HTML
+    có `<img src="http://127.0.0.1:8001/api/note-images/<id>">` → đo `naturalWidth/Height` sau khi tải.
+  - Cả 2 script nằm ở thư mục tạm của phiên làm việc (không commit vào repo).
+- Kết quả: **27/27 kiểm tra của kịch bản 1 đạt + kịch bản 2 đạt**, không phải sửa dòng code nào:
+  - Bucket `note-assets` có thật, `public=false`, `file_size_limit` 10 MB, `allowed_mime_types` = PNG/JPEG/WebP/GIF
+    (bucket được tạo tự động từ 2026-09-19T07:41Z).
+  - Khoá `sb_secret_...` gửi kèm header `apikey` (không Bearer) được Supabase chấp nhận ở cả upload / sign / delete / list.
+  - `POST /api/notes/{id}/images` → 201, file nằm đúng `notes/<note_id>/<asset_id>.png`.
+  - `GET /api/note-images/{id}` → 307 + `Cache-Control: private, max-age=3000`; tải signed URL KHÔNG cần key trả đúng
+    từng byte và `Content-Type: image/png`; bỏ `?token=` đi thì bị từ chối (400); URL `/object/public/...` cũng bị từ chối
+    → bucket thật sự private.
+  - Chrome headless tải và **giải mã được ảnh 17×9 qua chuỗi `<img>` → 307 → signed URL Supabase** (khác origin, không cần
+    CORS) — phần duy nhất Storage giả lập trước đây không kiểm chứng được.
+  - Vòng đời dọn ảnh đúng như thiết kế trên Storage thật: có trong nội dung → không đánh dấu; xoá khỏi nội dung → đánh dấu
+    nhưng file còn (Hoàn tác được); Hoàn tác → bỏ đánh dấu; quá `ORPHAN_GRACE` → lần lưu kế tiếp xoá cả file lẫn dòng
+    (`GET` ảnh đã xoá → 404); xoá note → xoá luôn ảnh của note; ảnh được note khác dùng → chuyển chủ, không xoá, vẫn tải được.
+  - Dọn sạch: sau kiểm thử bucket rỗng hoàn toàn (`prefix=notes` và gốc bucket đều trả `[]`), bảng test đã TRUNCATE.
+- `pytest` toàn bộ: 87 passed, 2 skipped (`-k live` mặc định bỏ qua) — không đổi so với phiên trước.
+- File/module đã thay đổi: chỉ `PROGRESS.md` (cập nhật trạng thái GĐ2 trong "Lộ trình Ghi chú" + mục này). Không sửa code.
+- Việc cần làm tiếp theo:
+  1. Khi deploy: thêm `SUPABASE_SECRET_KEY` vào Environment của Render rồi mở `/api/health` kiểm tra
+     `note_images_configured: true` (local đã `true`). Hiện `.env` local chỉ có `ALLOWED_ORIGINS=localhost` nên chưa kiểm
+     chứng được phía Render từ máy này.
+  2. Bắt đầu **GĐ3 — Liên kết & AI**: backlink `[[...]]`, agent `NoteSummary` (cột `ai_summary` riêng), gợi ý sửa chính tả
+     cho nội dung note.
+- Vấn đề đã biết (không đổi): ảnh chỉ bị xoá thật ở lần lưu nội dung kế tiếp sau `ORPHAN_GRACE` (Render free không có job
+  nền); dung lượng Storage free 1 GB — hiện bucket đang trống.
+
+## [2026-09-21] — Ghi chú: GIAI ĐOẠN 3 XONG (liên kết [[...]] + backlink, tóm tắt AI, soát lỗi chính tả)
+- Trạng thái lộ trình Ghi chú: GĐ1, GĐ2 xong (đã chạy thật với Supabase Storage); **GĐ3 xong**; GĐ4 (offline/PWA) và
+  GĐ5 (export, ghi âm nhanh trong note) chưa bắt đầu.
+- Quyết định của người dùng trước khi làm (3 câu hỏi):
+  1. Liên kết `[[...]]` **lưu kèm ID** (gõ `[[` → chọn từ danh sách; gõ tên chưa có → tạo ghi chú mới) thay vì khớp theo
+     tiêu đề — đổi tên note đích không làm gãy liên kết.
+  2. Soát lỗi chính tả soát **cả tiếng Việt lẫn tiếng Anh** (khác `ocr_review_agent` vốn chỉ đụng tiếng Anh); bù lại mọi
+     đề xuất đều phải người dùng duyệt từng mục, không bao giờ tự áp.
+  3. Tóm tắt AI hiển thị thành **2 tab trong dải tóm tắt** ("Của bạn" / "AI"), giữ nguyên khung Cornell cố định theo viewport.
+- Đã làm — backend:
+  - **Liên kết & backlink**: bảng `note_links` (`models/note.py::NoteLink`), `services/note_links.py` (regex
+    `[[Tiêu đề]](/notes/<id>)`, `sync_note_links` chạy mỗi lần lưu `content_md`, bỏ tự trỏ + note đã xoá; `delete_links_of`
+    khi xoá note; `get_links` trả `incoming`/`outgoing` kèm thư mục). Endpoint `GET /api/notes/{id}/links`.
+  - **Tóm tắt AI**: cột JSONB `notes.ai_summary` + `services/note_summary_agent.py` (dùng chung `SUMMARY_MODEL`,
+    `build_model_settings`; prompt học tập: tóm tắt 3–5 câu, ý chính, khái niệm, câu hỏi ôn tập; cắt prompt ở 120k ký tự).
+    `POST /api/notes/{id}/ai-summary` lưu kèm `model`, `generated_at`, `source_hash`; `ai_summary_outdated` được TÍNH từ
+    `source_hash` vs `content_md` hiện tại (không thêm cột cờ), và endpoint không gọi `touch()` nên note không bị đẩy lên
+    đầu danh sách.
+  - **Soát lỗi chính tả**: `services/note_proofread_agent.py` theo mẫu `ocr_review_agent` (LLM chỉ trả danh sách chỗ sửa).
+    Bộ lọc backend: `original` phải có thật NGOÀI vùng code/inline code/công thức/URL/đích link (đếm `occurrences`),
+    `corrected` không chứa ``` ` $ | [ ] < > \ ``` hay xuống dòng, bỏ trùng, ≤ 200 mục; chia phần ~20k ký tự, tối đa 4 lần
+    gọi song song; LLM lỗi một phần vẫn trả kết quả kèm `error`. `POST /api/notes/{id}/proofread` KHÔNG sửa nội dung.
+- Đã làm — frontend:
+  - `lib/noteLink.js`: node Tiptap `noteLink` (inline, atom, chip `[[Tiêu đề]]`, bấm để mở note đích) + extension gợi ý khi
+    gõ `[[`; `components/notes/NoteLinkMenu.jsx` (tìm ghi chú theo `?q=`, ↑ ↓ Enter/Tab/Esc, "Tạo ghi chú mới …").
+  - `components/notes/NoteLinksPanel.jsx`: backlink + liên kết đi ra, đặt dưới cột câu hỏi (mobile nằm trong tab "Câu hỏi").
+  - `components/notes/NoteAiPanel.jsx` + 2 tab trong dải tóm tắt: thanh tab ĐỨNG YÊN, nội dung tự cuộn; tab AI được cao tối
+    đa 45% khung (tab "Của bạn" giữ 30%); có cảnh báo "nội dung đã đổi sau lần tóm tắt" + chấm báo trên tab; câu hỏi ôn tập
+    thêm được vào cột câu hỏi (từng câu hoặc tất cả, tự bỏ câu đã có).
+  - `components/notes/ProofreadDialog.jsx` + `lib/noteProofread.js`: duyệt từng đề xuất (mặc định chọn hết) rồi thay chữ
+    trong editor bằng MỘT transaction (Ctrl+Z hoàn tác cả loạt), bỏ qua khối code / code trong dòng / công thức, khớp nguyên
+    từ có nhận biết chữ có dấu (`\p{L}\p{N}` vì `\w` của JS chỉ tính ASCII).
+  - Nút "Soát lỗi" trên thanh trên của trang ghi chú; nút "Liên kết ghi chú" trên thanh công cụ editor (gõ hộ `[[`).
+  - Trước khi gọi AI / soát lỗi luôn `flush()` autosave để backend đọc đúng nội dung mới nhất.
+- File/module đã thay đổi:
+  - Backend mới: `app/services/note_links.py`, `app/services/note_summary_agent.py`, `app/services/note_proofread_agent.py`,
+    `tests/test_note_links.py`, `tests/test_note_ai.py`. Sửa: `app/models/note.py` (NoteLink, ai_summary, content_hash,
+    NoteAiSummary/ProofreadItem/NoteLinks…), `app/routers/notes.py` (3 endpoint mới + sync/xoá liên kết), `tests/conftest.py`.
+  - Frontend mới: `lib/noteLink.js`, `lib/noteProofread.js`, `components/notes/NoteLinkMenu.jsx`,
+    `components/notes/NoteLinksPanel.jsx`, `components/notes/NoteAiPanel.jsx`, `components/notes/ProofreadDialog.jsx`.
+    Sửa: `components/notes/NoteDetail.jsx`, `components/notes/NoteContentEditor.jsx`, `lib/api.js`, `lib/noteEditor.js`,
+    `index.css` (chip `.note-link`).
+  - Tài liệu: `CLAUDE.md`, `GEMINI.md` (3 endpoint mới, mô tả GĐ3, 2 bẫy Tiptap mới), `PROGRESS.md`. Không thêm thư viện mới,
+    không thêm biến môi trường mới (dùng chung `SUMMARY_MODEL`).
+- Đã kiểm thử:
+  - `pytest` toàn bộ: **109 passed, 2 skipped** (22 test mới: parse/sync/xoá liên kết, backlink theo id sau khi đổi tên,
+    tự trỏ và note đã xoá bị bỏ, tóm tắt AI lưu đúng cột + cờ “đã cũ” + 422/404/502 + không đổi `updated_at`, cắt prompt
+    ghi chú dài, lọc đề xuất soát lỗi theo 7 quy tắc, chia phần + gộp kết quả nhiều lần gọi LLM).
+  - UI qua CDP (Chrome thật, backend thật ở schema `notewave_test`, LLM giả lập): **17/17 bước đạt** — desktop 1280×900
+    (tạo note, gõ `[[` → tạo ghi chú mới + chèn chip, panel liên kết, bấm chip sang note đích, backlink ngược lại, tạo tóm
+    tắt AI, thêm 3 câu hỏi vào cột câu hỏi, sửa nội dung → cảnh báo tóm tắt cũ, soát lỗi: bỏ chọn 1 mục rồi áp dụng 3 mục
+    còn lại, tải lại trang vẫn còn nguyên) và mobile 390×844 (2 tab tóm tắt, panel liên kết, menu `[[` và hộp thoại soát lỗi
+    vừa màn hình, không tràn ngang). Không lỗi console.
+  - Hồi quy GĐ1/GĐ2 sau khi thêm extension mới: 7/7 bước đạt (danh sách gõ "- ", công thức qua hộp thoại + gõ tắt `$$`,
+    bảng 3×3 + thanh công cụ bảng + `.tableWrapper`, neo câu hỏi, chế độ ôn tập, Markdown lưu đủ công thức/bảng/danh sách).
+  - `vite build` OK (`NoteDetail` 191 KB gzip, +10 KB so với GĐ2); `oxlint` **không cảnh báo mới** (vẫn 9 cảnh báo cũ của
+    các file có sẵn).
+- Lỗi phát hiện trong lúc kiểm thử và đã sửa:
+  - `Extension.configure()` của Tiptap **deep-clone** options → object `handlers` truyền vào bị sao chép, hàm gán sau khi
+    cấu hình (xử lý phím của menu `[[`) không bao giờ tới plugin → Enter rơi xuống keymap mặc định (xuống dòng). Sửa: truyền
+    các HÀM cố định, hàm mới trỏ tới state mới nhất.
+  - Plugin gợi ý phải có `priority: 1000` mới chặn được Enter/↑↓ trước keymap của StarterKit.
+  - Dải tóm tắt cuộn cả thanh tab → tách phần cuộn riêng, thanh tab đứng yên.
+- Vấn đề đã biết:
+  - Xoá note đích thì chip `[[...]]` trong ghi chú nguồn vẫn còn chữ (bấm vào sẽ báo “Không mở được ghi chú”); dòng trong
+    `note_links` đã được dọn nên panel liên kết không hiện mục hỏng.
+  - Soát lỗi thay MỌI chỗ khớp nguyên từ trong ghi chú (giống luồng OCR), chưa chọn được “chỉ chỗ này”; hộp thoại có ghi rõ
+    số chỗ sẽ thay.
+  - Đề xuất sửa tiếng Việt do LLM sinh ra chưa chạy thử trên nhiều văn phong thật; nếu thấy sửa hụt/sửa thừa thì chỉnh
+    `INSTRUCTIONS` trong `services/note_proofread_agent.py` rồi chạy lại kịch bản UI.
+  - Tóm tắt AI chỉ lưu 1 bản (tạo lại là ghi đè), chưa có lịch sử.

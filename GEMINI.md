@@ -106,6 +106,9 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 | `/api/notes/{id}/images` | POST | Tải 1 ảnh (multipart `file`; PNG/JPEG/WebP/GIF theo magic bytes, ≤ `NOTE_IMAGE_MAX_MB`) lên Supabase Storage → `{id, url: "/api/note-images/<id>", ...}`; chưa có `SUPABASE_SECRET_KEY` → 503 |
 | `/api/note-images/{id}` | GET | URL ỔN ĐỊNH của ảnh trong note → 307 tới signed URL 1 giờ của bucket private (`Cache-Control: private, max-age=3000`) |
 | `/api/notes/formula-ocr` | POST | Ảnh công thức vẽ tay (multipart `image`, PNG/JPEG/WebP ≤ 5MB) → Mistral OCR (data URI, không qua Files API) → `{latex, raw_markdown, multiple}`; không tạo phiên |
+| `/api/notes/{id}/links` | GET | Liên kết `[[...]]` của ghi chú: `{incoming: [...], outgoing: [...]}` (mỗi mục `{id, title, folder}`) — backend tính lại mỗi lần lưu `content_md` |
+| `/api/notes/{id}/ai-summary` | POST | Tạo (hoặc tạo lại) tóm tắt AI bằng `note_summary_agent` → `NoteAiSummary` (`summary`, `key_points`, `concepts`, `review_questions`, `model`, `generated_at`, `source_hash`); lưu vào cột `notes.ai_summary`, KHÔNG đụng `summary` tự viết, không đổi `updated_at`; nội dung rỗng → 422, LLM lỗi → 502 |
+| `/api/notes/{id}/proofread` | POST | Soát lỗi chính tả nội dung (tiếng Việt + tiếng Anh) bằng `note_proofread_agent` → `{suggestions: [{id, original, corrected, context, reason, occurrences}], error}`; backend CHỈ đề xuất, không sửa nội dung; nội dung rỗng → 422 |
 | `/api/note-folders` | GET/POST | Liệt kê thư mục (phẳng, kèm `parent_id` + `note_count` trực tiếp; frontend dựng cây) / tạo `{name, parent_id?}` (tên không trùng trong cùng thư mục cha, không phân biệt hoa thường) |
 | `/api/note-folders/{id}` | PATCH/DELETE | Đổi tên và/hoặc chuyển thư mục cha (`parent_id`, chặn vòng lặp → 422) / xoá: note + thư mục con chuyển lên thư mục cha (trùng tên thì thêm hậu tố " (2)"), không xoá note |
 | `/api/tags` | GET/POST | Liệt kê tag (kèm `note_count`) / tạo `{name}` (bỏ `#` đầu, gộp khoảng trắng, không trùng tên) |
@@ -162,8 +165,8 @@ Ghi chú:
     liệu", nhãn "Trang N" khi nhiều trang; .docx chuyển Markdown cơ bản (`services/markdown_docx.py`).
 - **Ghi chú Cornell** (`models/note.py`, `services/notes.py`, `routers/notes.py`, `routers/note_folders.py`,
   `routers/tags.py`; quyết định 2026-09-18 — lộ trình và các quyết định đã chốt ở `PROGRESS.md`): note là đối tượng ĐỘC LẬP (không liên kết `NoteSession`, không "tạo note từ phiên").
-  - Bảng `notes`, `note_folders` (cây, `parent_id`), `note_tags`, `note_tag_links` (nhiều-nhiều) — không FK ở DB, router
-    tự dọn liên kết. `NoteFolder` riêng, KHÔNG dùng lại `SessionGroup`.
+  - Bảng `notes`, `note_folders` (cây, `parent_id`), `note_tags`, `note_tag_links` (nhiều-nhiều), `note_links` (liên kết
+    `[[...]]` giữa các note, GĐ3) — không FK ở DB, router tự dọn liên kết. `NoteFolder` riêng, KHÔNG dùng lại `SessionGroup`.
   - Nội dung lưu 2 dạng: `content_json` (Tiptap JSON, để mở lại editor) + `content_md` (Markdown do frontend sinh bằng
     `editor.getMarkdown()`) — backend chỉ đọc Markdown (tìm kiếm, sau này export/AI/backlink). `search_text` = chữ thường
     của tiêu đề + câu hỏi + Markdown + tóm tắt, cập nhật mỗi lần lưu.
@@ -189,6 +192,22 @@ Ghi chú:
     canvas + Pointer Events, bỏ chạm tay khi đã dùng bút) → cắt sát nét + lề 24px → `/api/notes/formula-ocr` →
     `services/ocr.py::normalize_formula` (bỏ `$$`/`\[ \]`/`\( \)`/`$`; `$5` là tiền, không phải công thức; nhiều khối
     → `gathered` + `multiple=true`) → mở `MathDialog` để xem trước + sửa, KHÔNG chèn thẳng.
+  - **Liên kết giữa các ghi chú (GĐ3)** (`models/note.py::NoteLink`, `services/note_links.py`, `lib/noteLink.js`): gõ `[[` trong
+    nội dung mở menu chọn ghi chú (`NoteLinkMenu`, tìm qua `GET /api/notes?q=`); gõ tên chưa có → "Tạo ghi chú mới" rồi chèn luôn.
+    Node Tiptap `noteLink` (inline, atom) lưu `id` + `title`, Markdown xuất ra **`[[Tiêu đề]](/notes/<id>)`** — liên kết theo ID nên
+    đổi tên note đích không gãy. Mỗi lần lưu `content_md`, backend tính lại bảng `note_links` (bỏ tự trỏ và note đã xoá); xoá note
+    thì xoá cả liên kết hai chiều. Panel liên kết (`NoteLinksPanel`) nằm dưới cột câu hỏi.
+  - **Tóm tắt AI (GĐ3)** (`services/note_summary_agent.py`, `components/notes/NoteAiPanel.jsx`): cột JSONB riêng `notes.ai_summary`
+    (không bao giờ ghi đè `summary` người học tự viết), gồm tóm tắt / ý chính / khái niệm / câu hỏi ôn tập. `ai_summary_outdated`
+    KHÔNG phải cột: tính bằng cách so `source_hash` (sha1 rút gọn của `content_md` lúc tạo) với nội dung hiện tại. Chỉ chạy khi
+    người dùng bấm. Dải tóm tắt có 2 tab "Của bạn" / "AI" (thanh tab đứng yên, nội dung tự cuộn; tab AI cao tối đa 45% khung);
+    câu hỏi ôn tập có nút thêm thẳng vào cột câu hỏi Cornell.
+  - **Soát lỗi chính tả (GĐ3)** (`services/note_proofread_agent.py`, `components/notes/ProofreadDialog.jsx`,
+    `lib/noteProofread.js`): theo mẫu `ocr_review_agent` (LLM chỉ trả danh sách chỗ sửa) nhưng soát CẢ tiếng Việt lẫn tiếng Anh
+    (quyết định người dùng 2026-09-21). Backend lọc: `original` phải có thật ngoài vùng code/công thức/URL (đếm `occurrences`),
+    `corrected` không chứa ký tự cấu trúc Markdown/LaTeX, bỏ trùng, tối đa 200 mục; chia phần ~20k ký tự, tối đa 4 lần gọi song song.
+    Backend KHÔNG sửa nội dung — frontend thay chữ trong editor (1 transaction, Ctrl+Z hoàn tác được) sau khi người dùng duyệt,
+    bỏ qua khối code / code trong dòng / công thức.
   - **Bảng** (`TableKit`, `resizable: true`, `cellMinWidth: 96` → bảng bọc `.tableWrapper` cuộn ngang, không bị ép hẹp
     trên điện thoại); thanh "Bảng:" hiện khi con trỏ ở trong bảng.
   - **Dán / kéo thả:** dán HTML giữ định dạng (Tiptap); file ảnh dán / thả / chọn → nén ở trình duyệt
@@ -271,7 +290,10 @@ Lưu ý: pydantic-settings không tự đưa giá trị file `.env` vào `os.env
   bắt buộc: `UniqueID` → `BlockIdGuard` → `OrderedListContinuation` (`lib/orderedListContinuation.js`: danh sách số mới /
   nửa sau khi tách tự đánh số tiếp theo danh sách số phía trên, dừng ở tiêu đề; gõ "N. " giữ số N; nút thanh công cụ
   "Đánh số lại từ 1" / "Đánh số tiếp"); (4) ProseMirror chèn `img.ProseMirror-separator` sau node inline (vd. công thức
-  trong dòng) → CSS/selector cho ảnh phải dùng `img:not(.ProseMirror-separator)`.
+  trong dòng) → CSS/selector cho ảnh phải dùng `img:not(.ProseMirror-separator)`; (5) `Extension.configure()` của Tiptap
+  **deep-clone** options → truyền object rồi gán thêm hàm sau khi cấu hình thì plugin KHÔNG thấy (mất phím của menu `[[`);
+  phải truyền các HÀM cố định (hàm được sao theo tham chiếu) rồi mới trỏ tới state mới nhất; (6) plugin cần chặn Enter/↑↓
+  trước keymap của StarterKit phải đặt `priority` cao hơn (menu `[[` dùng `priority: 1000`).
 - Hộp thoại có vùng nội dung dài (vd. `MathDialog`) dùng `Modal flexBody`: thân là cột flex, phần dài (bảng ký hiệu) đặt
   `min-h-0` + tự cuộn bên trong -> hộp thoại luôn vừa màn hình, KHÔNG cuộn cả thân (người dùng yêu cầu 2026-09-19).
 - Frontend: state nhóm dùng chung qua `client/src/hooks/useGroups.js` (`useGroups()` + `groupActions`)
