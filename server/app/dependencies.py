@@ -9,6 +9,7 @@ from app.models.group import SessionGroup
 from app.models.session import NoteSession
 from app.services.ocr import OcrService
 from app.services.soniox import SonioxService
+from app.services.storage import SupabaseStorage
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbDep = Annotated[Session, Depends(get_db)]
@@ -26,6 +27,13 @@ def get_ocr(request: Request, settings: SettingsDep) -> OcrService:
 
 
 OcrDep = Annotated[OcrService, Depends(get_ocr)]
+
+
+def get_storage(request: Request, settings: SettingsDep) -> SupabaseStorage:
+    return SupabaseStorage(request.app.state.http, settings)
+
+
+StorageDep = Annotated[SupabaseStorage, Depends(get_storage)]
 
 
 def get_session_or_404(db: Session, session_id: str) -> NoteSession:

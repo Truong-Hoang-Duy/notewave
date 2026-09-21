@@ -28,7 +28,11 @@ Supabase → GitHub → Render → Vercel → quay lại Render cập nhật COR
 - [x] Tài khoản: [GitHub](https://github.com), [Supabase](https://supabase.com), [Render](https://render.com), [Vercel](https://vercel.com) — nên đăng nhập Supabase/Render/Vercel **bằng GitHub** cho tiện kết nối repo.
 - [x] `SONIOX_API_KEY` — https://console.soniox.com → API Keys.
 - [x] `OPENAI_API_KEY` — https://platform.openai.com/api-keys (tài khoản cần có credit).
-- [ ] `MISTRAL_API_KEY` — https://console.mistral.ai/api-keys (cần bật billing) — cho tab **Quét tài liệu**.
+- [ ] `MISTRAL_API_KEY` — https://console.mistral.ai/api-keys (cần bật billing) — cho tab **Quét tài liệu** và nút
+      **Vẽ công thức** trong Ghi chú.
+- [ ] `SUPABASE_SECRET_KEY` — Supabase Dashboard → **Project Settings → API Keys → Secret keys** (dạng `sb_secret_...`;
+      project cũ có thể dùng khoá `service_role`) — cho **ảnh trong Ghi chú**. Khoá này có toàn quyền project: chỉ đặt ở
+      backend (Render / `.env` local), không bao giờ đưa lên Vercel.
 - [x] Máy local chạy được app (`npm run dev`) và test backend xanh:
   ```bash
   npm run test:server        # chạy trên DB Supabase trong .env, chỉ dùng schema riêng notewave_test
@@ -120,13 +124,17 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
    | `DATABASE_URL` | connection string Transaction pooler ở bước 1 (có `?sslmode=require`) |
    | `ALLOWED_ORIGINS` | tạm thời điền `https://notewave.vercel.app` — sẽ sửa lại ở bước 5 |
    | `OPENAI_API_KEY` | key OpenAI |
-   | `MISTRAL_API_KEY` | key Mistral (quét tài liệu) |
+   | `MISTRAL_API_KEY` | key Mistral (quét tài liệu, vẽ công thức) |
+   | `SUPABASE_SECRET_KEY` | secret key Supabase (ảnh trong Ghi chú) |
    | `PUBLIC_BASE_URL` | `https://notewave-api.onrender.com` — sẽ kiểm tra lại ở bước 3.7 |
 
    Các biến còn lại đã có sẵn trong `render.yaml`: `PYTHON_VERSION=3.12.8`, `SUMMARY_MODEL=openai:gpt-5.6-luna`,
-   `OCR_MODEL=mistral-ocr-latest`, `MAX_UPLOAD_MB=100`, `SONIOX_WEBHOOK_SECRET` (Render tự sinh chuỗi ngẫu nhiên).
-   Blueprint đã tạo từ trước: tab **Environment** → **Add Environment Variable** `MISTRAL_API_KEY` (và `OCR_MODEL`
-   nếu muốn) → **Save, rebuild, and deploy** (Render không tự thêm biến mới từ `render.yaml` vào service đã có).
+   `OCR_MODEL=mistral-ocr-latest`, `NOTE_ASSETS_BUCKET=note-assets`, `MAX_UPLOAD_MB=100`, `SONIOX_WEBHOOK_SECRET` (Render
+   tự sinh chuỗi ngẫu nhiên). `SUPABASE_URL` không cần khai báo: backend tự suy ra từ project-ref trong `DATABASE_URL`.
+   Blueprint đã tạo từ trước: tab **Environment** → **Add Environment Variable** `MISTRAL_API_KEY`, `SUPABASE_SECRET_KEY`
+   (và `OCR_MODEL`, `NOTE_ASSETS_BUCKET` nếu muốn) → **Save, rebuild, and deploy** (Render không tự thêm biến mới từ
+   `render.yaml` vào service đã có). Bucket ảnh (private) được backend **tự tạo** ở lần chèn ảnh đầu tiên — không cần
+   tạo tay trong Supabase Storage.
 5. Bấm **Deploy Blueprint** (hoặc **Apply**).
 6. Mở service **notewave-api** → tab **Logs**, chờ build (lần đầu ~3–5 phút). Log thành công có:
    ```
@@ -206,6 +214,9 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
       lọc **Tài liệu quét** thấy phiên; **Xuất file** .docx có nội dung đã chốt.
 - [ ] **Tải nhiều file ghi âm**: chọn 3 file ngắn + chọn nhóm → mỗi file hiện tiến trình riêng → 3 phiên trong Lịch sử,
       đã nằm trong nhóm vừa chọn.
+- [ ] **Ghi chú**: tạo ghi chú → chèn ảnh (chọn file, dán, kéo thả) → ảnh hiện, tải lại trang vẫn còn; chèn bảng; chèn
+      công thức và **Vẽ công thức** → LaTeX đúng → Chèn. Supabase → **Storage** có bucket `note-assets` (Private) chứa
+      ảnh dưới `notes/<id>/`; xoá ghi chú → ảnh biến mất khỏi bucket.
 - [x] Supabase → **Table Editor → note_sessions** thấy dữ liệu vừa tạo.
 - [x] Supabase → **Advisors → Security Advisor**: không có cảnh báo "RLS disabled in public".
 
@@ -250,6 +261,10 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | Upload xong nhưng Render Logs không có `POST /api/webhooks/soniox` | `PUBLIC_BASE_URL` sai (không trùng URL Render) | Sửa `PUBLIC_BASE_URL` (mục 3.7). App vẫn chạy nhờ polling khi đang mở trang |
 | Upload file lớn báo lỗi / timeout | File quá lớn cho Render free (RAM 512MB, mạng) | Dùng file ≤ 100MB; nén sang m4a/mp3 trước khi tải lên |
 | Quét nhiều file: phiên xong nhưng có dòng "Không đọc được N file" | Một vài ảnh/PDF hỏng hoặc Mistral lỗi riêng file đó | Các file khác vẫn được giữ; xem Render Logs dòng `OCR thất bại cho file`, tải riêng file lỗi lên lại |
+| Ghi chú: nút chèn ảnh bị mờ / chèn ảnh báo `503` "Chưa cấu hình Supabase Storage" | Thiếu `SUPABASE_SECRET_KEY` | Thêm biến trên Render → `/api/health` có `"note_images_configured":true` |
+| Ghi chú: chèn ảnh báo "Không lưu được ảnh lên kho lưu trữ" (502) | Sai secret key, project Supabase bị tạm dừng, hoặc `SUPABASE_URL` sai (khi khai báo tay) | Xem Render Logs; kiểm tra key ở Project Settings → API Keys; Storage → bucket `note-assets` phải là **Private** |
+| Ghi chú: ảnh cũ hiện ô trống | File đã bị xoá khỏi bucket, hoặc lỗi lấy signed URL | Mở `https://<backend>/api/note-images/<id>` trực tiếp để xem lỗi; ảnh bị xoá thì chèn lại |
+| Vẽ công thức báo `503` / "Dịch vụ nhận diện công thức đang lỗi" | Thiếu / sai `MISTRAL_API_KEY` | Như dòng lỗi Quét tài liệu ở trên |
 | Điện thoại không hỏi quyền micro | Trình duyệt chặn quyền trước đó | Cài đặt trang (biểu tượng ổ khoá) → cho phép Micro, tải lại trang |
 
 ---
@@ -259,7 +274,7 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | Dịch vụ | Giới hạn chính |
 |---|---|
 | **Render Free** | 512MB RAM (NoteWave dùng ~250MB), ngủ sau 15 phút không có request, 750 giờ chạy/tháng cho mỗi workspace |
-| **Supabase Free** | Database 500MB, tạm dừng sau ~1 tuần không hoạt động, tối đa 2 project free |
+| **Supabase Free** | Database 500MB, **Storage 1GB** (ảnh trong Ghi chú — trình duyệt đã nén về WebP ≤ 2000px, thường vài trăm KB/ảnh), tạm dừng sau ~1 tuần không hoạt động, tối đa 2 project free |
 | **Vercel Hobby** | Chỉ dùng cho mục đích cá nhân/phi thương mại |
 | **Soniox, OpenAI, Mistral** | Tính phí theo lượng dùng — đặt giới hạn chi tiêu (usage limit) trong console của từng dịch vụ. Mistral OCR tính theo số trang; mỗi lần quét thêm 1 lần gọi LLM rà soát (PDF dài: nhiều lần, chia theo trang) |
 | **Mistral OCR** | Mỗi file tối đa 50MB / 1000 trang. Backend giữ file trong RAM khi xử lý nền — trên Render free (512MB) tránh nhiều người cùng quét PDF lớn một lúc |
@@ -268,6 +283,8 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 
 - [x] `.env` **không** có trên GitHub (kiểm tra trang repo). Nếu lỡ push: xoá file, **đổi ngay** tất cả key/mật khẩu trong đó.
 - [x] Mọi key chỉ nằm trong Environment của Render/Vercel. Trên Vercel chỉ có biến `VITE_*` (không có key bí mật nào).
+- [ ] `SUPABASE_SECRET_KEY` chỉ có trên Render / `.env` local; bucket `note-assets` là **Private** (ảnh chỉ xem được qua
+      signed URL ngắn hạn do backend cấp).
 - [x] `ALLOWED_ORIGINS` là domain cụ thể, không phải `*`.
 - [x] Đặt usage limit cho Soniox và OpenAI.
 - [x] ⚠️ **App chưa có đăng nhập**: ai biết URL frontend/backend đều xem, sửa, xoá được toàn bộ phiên ghi chú và dùng

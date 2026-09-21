@@ -239,3 +239,42 @@ class TagRead(BaseModel):
     id: str
     name: str
     note_count: int
+
+
+# ---- Ảnh trong ghi chú (Supabase Storage) + nhận diện công thức vẽ tay ----
+
+
+class NoteAsset(SQLModel, table=True):
+    """Ảnh đã tải lên cho một note. File nằm ở Supabase Storage (bucket private) tại `storage_path`; nội dung note tham
+    chiếu qua URL ổn định `/api/note-images/{id}` (không lưu signed URL vì hết hạn). Xoá note -> xoá ảnh."""
+
+    __tablename__ = "note_assets"
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True, max_length=32)
+    note_id: str = Field(max_length=32, index=True)
+    storage_path: str = Field(max_length=300)
+    content_type: str = Field(max_length=50)
+    size_bytes: int
+    filename: str | None = Field(default=None, max_length=255)
+    # Thời điểm ảnh không còn nằm trong nội dung note nào (bị xoá khỏi nội dung / tải lên nhưng chưa chèn). Quá thời gian
+    # chờ (services/note_media.py::ORPHAN_GRACE) mới xoá thật khỏi Storage — để Hoàn tác (Ctrl+Z) vẫn khôi phục được ảnh.
+    orphaned_at: datetime | None = Field(default=None, sa_column=tz_column(nullable=True, index=True))
+    created_at: datetime = Field(default_factory=utcnow, sa_column=tz_column())
+
+
+def note_image_url(asset_id: str) -> str:
+    return f"/api/note-images/{asset_id}"
+
+
+class NoteImageRead(BaseModel):
+    id: str
+    url: str  # đường dẫn tương đối tới backend, frontend tự ghép VITE_API_BASE_URL
+    filename: str | None
+    content_type: str
+    size_bytes: int
+
+
+class FormulaOcrResult(BaseModel):
+    latex: str  # LaTeX trần (đã bỏ $$ / \[ \]) — người dùng xem trước + sửa trước khi chèn
+    raw_markdown: str  # kết quả gốc của Mistral OCR
+    multiple: bool  # nhận ra nhiều hơn 1 công thức (có thể OCR bịa thêm) -> UI cảnh báo

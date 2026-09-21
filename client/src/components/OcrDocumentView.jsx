@@ -1,7 +1,13 @@
 import { memo, useMemo } from 'react'
+import 'katex/dist/katex.min.css'
 import Markdown from 'react-markdown'
+import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import PartDivider from './PartDivider'
+
+// Công thức Mistral OCR trả về (LaTeX) -> KaTeX; lỗi cú pháp hiện nguyên văn màu đỏ thay vì làm hỏng cả trang.
+const REHYPE_PLUGINS = [[rehypeKatex, { throwOnError: false, strict: false }]]
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -99,10 +105,11 @@ function strip(props) {
 const normalizeMarkdown = (text) => text.replace(/<br\s*\/?>/gi, ' ')
 
 const Page = memo(function Page({ text, corrections, onOpenCorrection }) {
-  const remarkPlugins = useMemo(() => [remarkGfm, [remarkHighlightCorrections, { corrections }]], [corrections])
+  // remark-math chạy trước plugin tô đề xuất: công thức ($...$, $$...$$) thành node riêng, không bị tô/sửa bên trong.
+  const remarkPlugins = useMemo(() => [remarkGfm, remarkMath, [remarkHighlightCorrections, { corrections }]], [corrections])
   const components = useMemo(() => buildComponents(corrections, onOpenCorrection), [corrections, onOpenCorrection])
   return (
-    <Markdown remarkPlugins={remarkPlugins} components={components}>
+    <Markdown remarkPlugins={remarkPlugins} rehypePlugins={REHYPE_PLUGINS} components={components}>
       {normalizeMarkdown(text)}
     </Markdown>
   )

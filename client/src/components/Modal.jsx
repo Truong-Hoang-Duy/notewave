@@ -3,7 +3,9 @@ import { useEffect, useRef } from 'react'
 
 /** Khung hộp thoại dùng chung: bottom sheet trên mobile, hộp giữa màn hình trên desktop. */
 /** `fill`: nội dung tự co vừa chiều cao còn lại của hộp thoại (không cuộn) — dùng cho xem trước ảnh/PDF. */
-export default function Modal({ open, title, description, onClose, busy = false, size = 'md', fill = false, children, footer }) {
+/** `flexBody`: thân là cột flex (con có `min-h-0` co lại được) -> hộp thoại vừa màn hình, phần cần cuộn tự cuộn bên trong;
+ *  chỉ màn hình cực thấp mới còn cuộn cả thân (dự phòng). */
+export default function Modal({ open, title, description, onClose, busy = false, size = 'md', fill = false, flexBody = false, children, footer }) {
   const panelRef = useRef(null)
   const closeRef = useRef(onClose)
   const busyRef = useRef(busy)
@@ -53,7 +55,10 @@ export default function Modal({ open, title, description, onClose, busy = false,
             <X className="size-4" />
           </button>
         </div>
-        <div data-modal-body className={`min-h-0 flex-1 px-5 py-4 sm:px-6 ${fill ? 'flex overflow-hidden' : 'overflow-y-auto'}`}>
+        <div
+          data-modal-body
+          className={`min-h-0 flex-1 px-5 py-4 sm:px-6 ${fill ? 'flex overflow-hidden' : flexBody ? 'flex flex-col overflow-y-auto' : 'overflow-y-auto'}`}
+        >
           {children}
         </div>
         {footer && (

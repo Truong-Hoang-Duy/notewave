@@ -7,6 +7,7 @@ Backend chưa có storage file public nên KHÔNG dùng URL public của file ng
 3. Luôn xoá file trên Mistral sau khi xong (kể cả khi lỗi).
 """
 
+import base64
 import io
 import logging
 import re
@@ -109,6 +110,26 @@ def clean_page_markdown(markdown: str) -> str:
     return _EXTRA_BLANK_LINES.sub("\n\n", _IMAGE_REF.sub("", markdown or "")).strip()
 
 
+# ---- Nhận diện công thức vẽ tay (Ghi chú) ----
+# Kết quả Mistral bọc công thức không thống nhất: $$...$$, \[...\], \(...\), $...$, có khi nhiều khối (Thử nghiệm 1,
+# 2026-09-18: ảnh nhiều khoảng trắng còn bị bịa thêm công thức -> frontend cắt sát nét vẽ, UI cảnh báo khi > 1 khối).
+_MATH_BLOCKS = re.compile(r"\$\$(.+?)\$\$|\\\[(.+?)\\\]|\\\((.+?)\\\)|(?<![\\$])\$(?!\s)([^$\n]+?)(?<!\s)\$(?![$\d])", re.DOTALL)
+MAX_FORMULA_IMAGE_MB = 5
+FORMULA_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
+
+
+def normalize_formula(markdown: str) -> tuple[str, bool]:
+    """Markdown OCR -> (LaTeX trần, có nhiều công thức hay không). Không có dấu bọc -> coi cả đoạn là LaTeX."""
+    parts = [next(g for g in m.groups() if g is not None).strip() for m in _MATH_BLOCKS.finditer(markdown or "")]
+    parts = [p for p in parts if p]
+    if not parts:
+        text = " ".join((markdown or "").split())
+        return text, False
+    if len(parts) == 1:
+        return parts[0], False
+    return "\\begin{gathered}\n" + " \\\\\n".join(parts) + "\n\\end{gathered}", True
+
+
 class OcrService:
     def __init__(self, settings: Settings, async_client: httpx.AsyncClient | None = None):
         self._settings = settings
@@ -163,6 +184,24 @@ class OcrService:
                 except (MistralError, httpx.HTTPError):
                     logger.warning("Không xoá được file %s trên Mistral", file_id)
 
+        return self._result(response)
+
+    async def extract_formula(self, content: bytes, content_type: str) -> str:
+        """OCR một ảnh công thức nhỏ (vẽ tay trên canvas). Gửi thẳng data URI — nhanh hơn ~3 lần so với đi qua Files API
+        (upload -> signed URL -> OCR -> xoá), đo ở Thử nghiệm 1. Trả Markdown gốc của trang đầu."""
+        client = self._client()
+        uri = f"data:{content_type};base64,{base64.b64encode(content).decode()}"
+        try:
+            response = await client.ocr.process_async(
+                model=self._settings.ocr_model,
+                document={"type": "image_url", "image_url": uri},
+                include_image_base64=False,
+            )
+        except (MistralError, httpx.HTTPError) as exc:
+            raise OcrError(f"Mistral OCR lỗi: {exc}") from exc
+        return response.pages[0].markdown if response.pages else ""
+
+    def _result(self, response) -> OcrResult:
         pages = [
             OcrPage(page=i + 1, markdown=clean_page_markdown(p.markdown))
             for i, p in enumerate(sorted(response.pages, key=lambda p: p.index))

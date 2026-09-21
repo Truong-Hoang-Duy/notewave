@@ -1,4 +1,5 @@
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -47,6 +48,20 @@ class Settings(BaseSettings):
     mistral_api_key: str = ""
     mistral_api_base_url: str = "https://api.mistral.ai"
     ocr_model: str = "mistral-ocr-latest"
+
+    # Supabase Storage cho ảnh trong Ghi chú (gọi REST từ backend). `supabase_url` trống -> suy ra từ project-ref trong
+    # DATABASE_URL (user "postgres.<ref>" của Transaction pooler). Secret key (sb_secret_... hoặc service_role) CHỈ ở backend.
+    supabase_url: str = ""
+    supabase_secret_key: str = ""
+    note_assets_bucket: str = "note-assets"
+    note_image_max_mb: int = Field(default=10, ge=1, le=50)
+
+    @property
+    def supabase_storage_url(self) -> str:
+        if self.supabase_url:
+            return self.supabase_url.rstrip("/")
+        match = re.search(r"//postgres\.([a-z0-9]+)[:@]", self.database_url)
+        return f"https://{match.group(1)}.supabase.co" if match else ""
 
     @property
     def allowed_origins_list(self) -> list[str]:

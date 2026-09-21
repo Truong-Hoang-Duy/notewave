@@ -15,7 +15,7 @@
 
 4. **Ghi chú (Cornell)** — ghi chú học tập độc lập: cột câu hỏi/từ khoá (neo vào từng đoạn) — nội dung chi tiết
    (editor Tiptap) — tóm tắt tự viết; thư mục dạng cây + tag, tự lưu, chế độ ôn tập, giao diện riêng từng note
-   (Giai đoạn 1 xong 2026-09-18; các giai đoạn sau theo `NoteWave_Note_Feature_Prompt.md` + `PROGRESS.md`).
+   (lộ trình các giai đoạn + trạng thái: mục "Lộ trình Ghi chú" trong `PROGRESS.md`).
 
 2 luồng giọng nói hỗ trợ phân biệt người nói (speaker diarization); cả 3 luồng đều lưu lịch sử phiên,
 tóm tắt bằng AI, và xuất file .txt/.docx.
@@ -28,9 +28,11 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
   `react-markdown` + `remark-gfm` (render Markdown OCR — chunk lazy, chỉ tải khi mở phiên OCR),
   `pdfjs-dist` (xem trước PDF trước khi tải lên — chunk lazy, chỉ tải khi mở preview một file PDF),
   **Tiptap v3** (`@tiptap/react`, `pm`, `starter-kit`, `extension-list`, `extensions`, `markdown`, `extension-unique-id` —
-  editor của Ghi chú, chunk lazy chỉ tải khi mở một ghi chú; duyệt 2026-09-18). Đã duyệt nhưng CHƯA cài (Giai đoạn 2 của
-  Ghi chú): `katex` + `remark-math` + `rehype-katex` (dùng chung cho Ghi chú và `OcrDocumentView`), `@tiptap/extension-table`,
-  `@tiptap/extension-mathematics`. Chưa duyệt: `dexie`, `vite-plugin-pwa`.
+  editor của Ghi chú, chunk lazy chỉ tải khi mở một ghi chú; duyệt 2026-09-18) + `extension-table`, `extension-image`,
+  `extension-mathematics` (GĐ2); `katex` + `remark-math` + `rehype-katex` (render công thức, dùng chung cho Ghi chú và
+  `OcrDocumentView`). **`katex` giữ ở `^0.16`**: `rehype-katex`/`micromark-extension-math` chỉ nhận 0.16 — cài 0.17+ sẽ
+  có 2 bản KaTeX trong bundle; `vite.config.js` tách KaTeX thành chunk riêng (`codeSplitting.groups`) để 2 chunk lazy
+  dùng chung. Chưa duyệt: `dexie`, `vite-plugin-pwa`.
   Điều hướng dùng hash router tự viết (`#/live`, `#/upload`, `#/scan`, `#/notes`, `#/notes/<id>`, `#/history/<id>`),
   không dùng react-router.
 - **Backend:** Python, FastAPI (web server) + PydanticAI (agent tóm tắt / rà soát OCR bằng LLM). Thư mục `/server`.
@@ -52,8 +54,8 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
     `prepare_threshold=None` để chạy được qua pooler.
   - Kiểu cột dùng tính năng Postgres: `JSONB` cho `segments`/`summary`/`merge_sources`,
     `timestamptz` cho mọi cột thời gian (`models/common.py::tz_column`).
-  - Chỉ dùng phần Postgres của Supabase; chưa tích hợp Supabase Auth/Storage/SDK vào code (Storage sẽ dùng cho ảnh của
-    Ghi chú ở Giai đoạn 2 — gọi REST từ backend, không dùng SDK ở client).
+  - Dùng Postgres + **Storage** của Supabase (Storage cho ảnh trong Ghi chú — `services/storage.py` gọi REST bằng `httpx` từ
+    backend với `SUPABASE_SECRET_KEY`, bucket private). Chưa dùng Supabase Auth, không dùng SDK Supabase ở client.
   - Bảng tạo bằng `SQLModel.metadata.create_all` lúc khởi động (không dùng migrations của Supabase CLI).
 - **Speech-to-Text:** Soniox API.
   - Ghi âm trực tiếp → **Real-time WebSocket API** (`wss://api.soniox.com/transcribe-websocket`),
@@ -101,11 +103,14 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 | `/api/groups/{id}` | PATCH/DELETE | Đổi tên nhóm / xoá nhóm (phiên trong nhóm chuyển về "chưa phân nhóm", không bị xoá) |
 | `/api/notes` | POST/GET | Tạo ghi chú Cornell (`{title?, folder_id?, tag_ids?}`) / liệt kê (`?q=` tìm trong tiêu đề+câu hỏi+nội dung+tóm tắt, `?folder_id=<id>\|none` (chỉ note nằm TRỰC TIẾP), `?tag_id=`, `?sort=` `updated_desc` (mặc định) \| `created_desc` \| `created_asc` \| `title_asc` \| `title_desc`, `limit`, `offset`) |
 | `/api/notes/{id}` | GET/PATCH/DELETE | Xem / cập nhật TỪNG PHẦN (autosave chỉ gửi field đã đổi: `title`, `folder_id` (null tường minh = ra gốc), `tag_ids` (thay toàn bộ), `cues`, `content_json`, `content_md`, `summary`, `style`) — last-write-wins, không kiểm tra phiên bản / xoá |
+| `/api/notes/{id}/images` | POST | Tải 1 ảnh (multipart `file`; PNG/JPEG/WebP/GIF theo magic bytes, ≤ `NOTE_IMAGE_MAX_MB`) lên Supabase Storage → `{id, url: "/api/note-images/<id>", ...}`; chưa có `SUPABASE_SECRET_KEY` → 503 |
+| `/api/note-images/{id}` | GET | URL ỔN ĐỊNH của ảnh trong note → 307 tới signed URL 1 giờ của bucket private (`Cache-Control: private, max-age=3000`) |
+| `/api/notes/formula-ocr` | POST | Ảnh công thức vẽ tay (multipart `image`, PNG/JPEG/WebP ≤ 5MB) → Mistral OCR (data URI, không qua Files API) → `{latex, raw_markdown, multiple}`; không tạo phiên |
 | `/api/note-folders` | GET/POST | Liệt kê thư mục (phẳng, kèm `parent_id` + `note_count` trực tiếp; frontend dựng cây) / tạo `{name, parent_id?}` (tên không trùng trong cùng thư mục cha, không phân biệt hoa thường) |
 | `/api/note-folders/{id}` | PATCH/DELETE | Đổi tên và/hoặc chuyển thư mục cha (`parent_id`, chặn vòng lặp → 422) / xoá: note + thư mục con chuyển lên thư mục cha (trùng tên thì thêm hậu tố " (2)"), không xoá note |
 | `/api/tags` | GET/POST | Liệt kê tag (kèm `note_count`) / tạo `{name}` (bỏ `#` đầu, gộp khoảng trắng, không trùng tên) |
 | `/api/tags/{id}` | PATCH/DELETE | Đổi tên / xoá tag (gỡ khỏi mọi note, note không bị xoá) |
-| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`, `soniox_configured`, `ocr_configured`, `webhook_enabled`; luôn HTTP 200 |
+| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`, `soniox_configured`, `ocr_configured`, `note_images_configured`, `webhook_enabled`; luôn HTTP 200 |
 
 Ghi chú:
 - `GET /api/sessions` hỗ trợ `?q=` (tìm theo tiêu đề/nội dung), `?source=live|upload|ocr`,
@@ -151,11 +156,12 @@ Ghi chú:
     4 lần gọi song song. Sửa prompt thì chạy `RUN_LLM_TESTS=1 pytest tests/test_ocr.py -k live`.
   - **Job nền:** chạy trong process backend (Render free 1 instance); phiên `processing` không có job trong process và
     `updated_at` cũ hơn 10 phút → endpoint status đặt `failed` ("bị gián đoạn").
+  - Công thức LaTeX trong kết quả OCR render bằng KaTeX ở `OcrDocumentView` (`remark-math` chạy TRƯỚC plugin tô đề xuất);
+    `ocr_review_agent` bỏ qua mọi chỗ nằm trong `$...$`/`$$...$$`/`\[...\]`/`\(...\)` ở cả bước lọc lẫn bước áp dụng.
   - Tóm tắt phiên OCR: prompt báo nội dung là văn bản OCR (không đổi `INSTRUCTIONS`). Export: tiêu đề "Nội dung tài
     liệu", nhãn "Trang N" khi nhiều trang; .docx chuyển Markdown cơ bản (`services/markdown_docx.py`).
 - **Ghi chú Cornell** (`models/note.py`, `services/notes.py`, `routers/notes.py`, `routers/note_folders.py`,
-  `routers/tags.py`; quyết định 2026-09-18, đặc tả gốc `NoteWave_Note_Feature_Prompt.md` — xem `PROGRESS.md` cho các
-  điểm đã đổi so với đặc tả): note là đối tượng ĐỘC LẬP (không liên kết `NoteSession`, không "tạo note từ phiên").
+  `routers/tags.py`; quyết định 2026-09-18 — lộ trình và các quyết định đã chốt ở `PROGRESS.md`): note là đối tượng ĐỘC LẬP (không liên kết `NoteSession`, không "tạo note từ phiên").
   - Bảng `notes`, `note_folders` (cây, `parent_id`), `note_tags`, `note_tag_links` (nhiều-nhiều) — không FK ở DB, router
     tự dọn liên kết. `NoteFolder` riêng, KHÔNG dùng lại `SessionGroup`.
   - Nội dung lưu 2 dạng: `content_json` (Tiptap JSON, để mở lại editor) + `content_md` (Markdown do frontend sinh bằng
@@ -166,7 +172,28 @@ Ghi chú:
   - `summary` = tóm tắt người học TỰ viết (tóm tắt AI sẽ là cột riêng). `style` = `{theme, font, font_size}` chỉ nhận giá
     trị có sẵn (`NoteTheme`/`NoteFont`/`NoteFontSize` ↔ `client/src/lib/noteStyles.js`), áp riêng cho từng note.
   - Không đồng bộ nhiều thiết bị, không kiểm tra phiên bản (last-write-wins, người dùng chấp nhận rủi ro ghi đè).
-  - Ảnh trong note (Giai đoạn 2) sẽ lưu Supabase Storage qua REST từ backend (`httpx`), bucket private, signed URL.
+  - **Ảnh** (`services/storage.py` REST `httpx` + `services/note_media.py` + `routers/note_media.py`, bảng `note_assets`):
+    bucket PRIVATE `note-assets` (tự tạo ở lần tải đầu), object `notes/<note_id>/<asset_id>.<ext>`. Nội dung note chỉ lưu
+    `/api/note-images/<id>` (frontend ghép `VITE_API_BASE_URL` khi hiển thị — `lib/noteImages.js::NoteImage`); xoá note →
+    xoá ảnh. Khoá `sb_secret_...` gửi header `apikey`, khoá JWT cũ gửi thêm `Authorization`.
+    **Dọn ảnh không còn dùng** (`services/note_media.py`, cột `note_assets.orphaned_at`): mỗi lần lưu `content_md`, ảnh của
+    note không còn trong nội dung được đánh dấu chờ xoá, ảnh xuất hiện lại (Hoàn tác / dán từ note khác) được bỏ đánh dấu;
+    quá `ORPHAN_GRACE` (10 phút — để Ctrl+Z còn khôi phục được) thì xoá thật file + dòng ở lần lưu nội dung / xoá note kế
+    tiếp (không có job nền). Ảnh mới tải lên cũng bắt đầu ở trạng thái chờ (tải mà không chèn → tự dọn). Ảnh còn nằm trong
+    nội dung note khác (tìm qua `search_text`) thì KHÔNG xoá mà chuyển sang note đó. Storage lỗi → giữ dòng, thử lại lần sau.
+  - **Công thức:** node `inlineMath`/`blockMath` (KaTeX), Markdown `$...$` / `$$` trên dòng riêng; gõ tắt `$$x$$` (trong dòng),
+    `$$$x$$$` (khối); bấm vào công thức mở `MathDialog` (sửa / đổi kiểu / xoá). Bảng ký hiệu `MathPalette` lấy dữ liệu từ
+    `lib/mathSnippets.js` (7 nhóm, 272 mục: cơ bản, Hy Lạp, giải tích, tập hợp·logic, mũi tên, ma trận·hệ, mẫu công thức);
+    quy ước `{}` = ô cần điền (con trỏ vào `{}` đầu tiên, nút vẽ thành □). Thêm mục mới phải render được bằng KaTeX ở chế
+    độ `strict: 'error'` (chữ tiếng Việt trong công thức bọc `	ext{}`). **Vẽ công thức** (`DrawFormulaDialog`,
+    canvas + Pointer Events, bỏ chạm tay khi đã dùng bút) → cắt sát nét + lề 24px → `/api/notes/formula-ocr` →
+    `services/ocr.py::normalize_formula` (bỏ `$$`/`\[ \]`/`\( \)`/`$`; `$5` là tiền, không phải công thức; nhiều khối
+    → `gathered` + `multiple=true`) → mở `MathDialog` để xem trước + sửa, KHÔNG chèn thẳng.
+  - **Bảng** (`TableKit`, `resizable: true`, `cellMinWidth: 96` → bảng bọc `.tableWrapper` cuộn ngang, không bị ép hẹp
+    trên điện thoại); thanh "Bảng:" hiện khi con trỏ ở trong bảng.
+  - **Dán / kéo thả:** dán HTML giữ định dạng (Tiptap); file ảnh dán / thả / chọn → nén ở trình duyệt
+    (`lib/imageCompress.js`: ≤ 2000px, WebP) → tải lên với ô chờ là decoration (không bao giờ lưu URL tạm); thả ảnh giữa
+    dòng chữ thì đặt ở ranh giới khối (không cắt đôi từ), dán thì chèn đúng con trỏ.
 - **Sửa transcript:** export/summarize luôn đọc `segments` hiện tại trong DB (bản đã sửa). Tóm tắt lại
   sẽ đặt `summary_outdated=false`; không bao giờ tự động gọi LLM sau khi sửa.
 - **Migration:** chưa có Alembic. `db.init_db()` gọi `create_all` → `_add_missing_columns()` (tự
@@ -201,6 +228,10 @@ OCR_MODEL=               # mặc định mistral-ocr-latest
 PUBLIC_BASE_URL=         # URL public của backend; có giá trị -> đăng ký webhook Soniox
 SONIOX_WEBHOOK_SECRET=   # Soniox gửi "Authorization: Bearer <secret>" khi gọi webhook
 MAX_UPLOAD_MB=           # mặc định 100 (file ghi âm; file OCR cố định theo giới hạn Mistral: 50MB / 1000 trang)
+SUPABASE_SECRET_KEY=     # Supabase Storage cho ảnh trong Ghi chú (sb_secret_... / service_role) — CHỈ backend; trống -> tắt chèn ảnh
+SUPABASE_URL=            # tuỳ chọn, trống = suy ra https://<ref>.supabase.co từ user "postgres.<ref>" trong DATABASE_URL
+NOTE_ASSETS_BUCKET=      # mặc định note-assets (private, backend tự tạo)
+NOTE_IMAGE_MAX_MB=       # mặc định 10 (mỗi ảnh, sau khi trình duyệt nén)
 ```
 Frontend (`client/.env`, trên Vercel khai báo trong Project Settings):
 ```
@@ -239,7 +270,10 @@ Lưu ý: pydantic-settings không tự đưa giá trị file `.env` vào `os.env
   tách một khối (vd. Enter 2 lần giữa danh sách → 2 nửa cùng id) → `lib/blockIdGuard.js` dọn id trùng. Thứ tự extension
   bắt buộc: `UniqueID` → `BlockIdGuard` → `OrderedListContinuation` (`lib/orderedListContinuation.js`: danh sách số mới /
   nửa sau khi tách tự đánh số tiếp theo danh sách số phía trên, dừng ở tiêu đề; gõ "N. " giữ số N; nút thanh công cụ
-  "Đánh số lại từ 1" / "Đánh số tiếp").
+  "Đánh số lại từ 1" / "Đánh số tiếp"); (4) ProseMirror chèn `img.ProseMirror-separator` sau node inline (vd. công thức
+  trong dòng) → CSS/selector cho ảnh phải dùng `img:not(.ProseMirror-separator)`.
+- Hộp thoại có vùng nội dung dài (vd. `MathDialog`) dùng `Modal flexBody`: thân là cột flex, phần dài (bảng ký hiệu) đặt
+  `min-h-0` + tự cuộn bên trong -> hộp thoại luôn vừa màn hình, KHÔNG cuộn cả thân (người dùng yêu cầu 2026-09-19).
 - Frontend: state nhóm dùng chung qua `client/src/hooks/useGroups.js` (`useGroups()` + `groupActions`)
   — tạo/đổi tên/xoá/gán nhóm luôn đi qua đây để mọi màn hình cập nhật đồng bộ. Hộp thoại dùng
   `components/Modal.jsx`; xác nhận xoá dùng `components/ConfirmDialog.jsx`.

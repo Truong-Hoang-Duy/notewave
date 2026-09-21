@@ -385,6 +385,7 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
               aria-hidden={studyMode || undefined}
             >
               <NoteContentEditor
+                noteId={noteId}
                 initialContent={initialNote.content_json}
                 editable={!studyMode}
                 onReady={onEditorReady}

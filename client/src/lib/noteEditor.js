@@ -1,7 +1,33 @@
 /** Tiện ích cho editor ghi chú (Tiptap) và cột câu hỏi Cornell — tách khỏi file component để fast refresh chạy đúng. */
 
 // Khối được gán id ổn định (thuộc tính data-id, Tiptap UniqueID) — câu hỏi ở cột trái neo vào các id này.
-export const ANCHOR_TYPES = ['heading', 'paragraph', 'bulletList', 'orderedList', 'taskList', 'listItem', 'taskItem', 'blockquote', 'codeBlock']
+export const ANCHOR_TYPES = [
+  'heading',
+  'paragraph',
+  'bulletList',
+  'orderedList',
+  'taskList',
+  'listItem',
+  'taskItem',
+  'blockquote',
+  'codeBlock',
+  'table',
+  'image',
+  'blockMath',
+]
+
+/** Chữ của một node để làm "đáp án" ôn tập: công thức -> LaTeX, ảnh -> nhãn, còn lại -> text. */
+function nodeText(node) {
+  if (node.type.name === 'blockMath' || node.type.name === 'inlineMath') return `$${node.attrs.latex}$`
+  if (node.type.name === 'image') return `[Ảnh${node.attrs.alt ? `: ${node.attrs.alt}` : ''}]`
+  if (node.isText) return node.text
+  let out = ''
+  node.forEach((child, _offset, index) => {
+    if (index && child.isBlock) out += '\n'
+    out += nodeText(child)
+  })
+  return out
+}
 
 export function newCueId() {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
@@ -32,7 +58,7 @@ export function blockText(editor, id) {
   editor?.state.doc.descendants((node) => {
     if (text !== null) return false
     if (node.attrs?.id === id) {
-      text = node.textBetween(0, node.content.size, '\n', ' ')
+      text = nodeText(node)
       return false
     }
     return true

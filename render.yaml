@@ -27,6 +27,10 @@ services:
         sync: false
       - key: OCR_MODEL
         value: mistral-ocr-latest
+      - key: SUPABASE_SECRET_KEY # Supabase Storage cho ảnh trong Ghi chú (chỉ backend)
+        sync: false
+      - key: NOTE_ASSETS_BUCKET
+        value: note-assets
       - key: PUBLIC_BASE_URL # vd: https://notewave-api.onrender.com (bật webhook Soniox)
         sync: false
       - key: SONIOX_WEBHOOK_SECRET

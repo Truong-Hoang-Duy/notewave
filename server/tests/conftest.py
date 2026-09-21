@@ -24,6 +24,8 @@ os.environ["SONIOX_API_KEY"] = "test-soniox-key"
 os.environ["PUBLIC_BASE_URL"] = "https://api.example.com"
 os.environ["SONIOX_WEBHOOK_SECRET"] = "s3cret"
 os.environ["MISTRAL_API_KEY"] = "test-mistral-key"
+os.environ["SUPABASE_URL"] = "https://storage.example.supabase.co"
+os.environ["SUPABASE_SECRET_KEY"] = "sb_secret_test"
 if os.environ.get("RUN_LLM_TESTS") != "1":
     # Mặc định không bao giờ gọi LLM thật; RUN_LLM_TESTS=1 thì dùng key thật trong .env.
     os.environ["OPENAI_API_KEY"] = "test-openai-key"
@@ -43,6 +45,7 @@ from app.main import app  # noqa: E402
 
 from tests.soniox_fake import soniox  # noqa: E402, F401  (fixture Soniox giả lập)
 from tests.mistral_fake import mistral  # noqa: E402, F401  (fixture Mistral OCR giả lập)
+from tests.storage_fake import storage  # noqa: E402, F401  (fixture Supabase Storage giả lập)
 
 
 @pytest.fixture(scope="session")
@@ -57,7 +60,7 @@ def clean_tables(client):
     # Chặn cứng: không bao giờ TRUNCATE nếu engine không trỏ vào schema test.
     assert db.current_schema() == TEST_SCHEMA != "public"
     with engine.begin() as conn:
-        tables = ("note_sessions", "session_groups", "notes", "note_folders", "note_tags", "note_tag_links")
+        tables = ("note_sessions", "session_groups", "notes", "note_folders", "note_tags", "note_tag_links", "note_assets")
         conn.execute(text("TRUNCATE " + ", ".join(qualified(t) for t in tables)))
     app.dependency_overrides.clear()
 

@@ -5,8 +5,9 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import delete, func
 from sqlmodel import col, select
 
-from app.dependencies import DbDep
+from app.dependencies import DbDep, StorageDep
 from app.models.note import Note, NoteCreate, NoteList, NoteRead, NoteSort, NoteTagLink, NoteUpdate
+from app.services.note_media import delete_note_images, purge_orphan_images, sync_note_images
 from app.services.notes import get_folder_or_404, get_note_or_404, list_items, read_note, set_note_tags
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
@@ -71,7 +72,7 @@ def get_note(note_id: str, db: DbDep) -> NoteRead:
 
 
 @router.patch("/{note_id}", response_model=NoteRead)
-def update_note(note_id: str, payload: NoteUpdate, db: DbDep) -> NoteRead:
+async def update_note(note_id: str, payload: NoteUpdate, db: DbDep, storage: StorageDep) -> NoteRead:
     """Cập nhật từng phần — autosave chỉ gửi field đã đổi. Ghi đè theo kiểu last-write-wins (không kiểm tra phiên
     bản): mở cùng một note ở 2 nơi thì bản lưu sau thắng."""
     note = get_note_or_404(db, note_id)
@@ -97,18 +98,26 @@ def update_note(note_id: str, payload: NoteUpdate, db: DbDep) -> NoteRead:
         note.style = payload.style.model_dump(exclude_none=True) if payload.style else None
     if "tag_ids" in fields and payload.tag_ids is not None:
         set_note_tags(db, note.id, payload.tag_ids)
+    content_changed = "content_md" in fields and payload.content_md is not None
     note.refresh_search_text()
     note.touch()
     db.add(note)
+    if content_changed:
+        sync_note_images(db, note)  # ảnh bị xoá khỏi nội dung -> đánh dấu chờ xoá; ảnh xuất hiện lại -> bỏ đánh dấu
     db.commit()
+    if content_changed:
+        await purge_orphan_images(db, storage)  # xoá thật các ảnh đã chờ quá thời gian (của mọi note)
     db.refresh(note)
     return read_note(db, note)
 
 
 @router.delete("/{note_id}", status_code=204)
-def delete_note(note_id: str, db: DbDep) -> Response:
+async def delete_note(note_id: str, db: DbDep, storage: StorageDep) -> Response:
+    """Xoá note + tag liên kết + ảnh của note (Supabase Storage)."""
     note = get_note_or_404(db, note_id)
+    await delete_note_images(db, storage, note_id)
     db.exec(delete(NoteTagLink).where(col(NoteTagLink.note_id) == note_id))  # type: ignore[call-overload]
     db.delete(note)
     db.commit()
+    await purge_orphan_images(db, storage)
     return Response(status_code=204)

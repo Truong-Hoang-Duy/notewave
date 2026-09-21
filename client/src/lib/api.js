@@ -1,5 +1,23 @@
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
+/** Đường dẫn tương đối của backend ("/api/...") -> URL đầy đủ (frontend Vercel và backend Render khác domain). */
+export function apiUrl(path) {
+  return path?.startsWith('/api/') ? `${BASE_URL}${path}` : path
+}
+
+/** Ngược lại với `apiUrl`: URL đầy đủ của ảnh note -> đường dẫn tương đối để lưu trong nội dung (không phụ thuộc domain). */
+export function toApiPath(url) {
+  if (!url) return url
+  if (BASE_URL && url.startsWith(`${BASE_URL}/api/`)) return url.slice(BASE_URL.length)
+  try {
+    const u = new URL(url, window.location.href)
+    if (u.origin === window.location.origin && u.pathname.startsWith('/api/note-images/')) return u.pathname
+  } catch {
+    /* không phải URL hợp lệ */
+  }
+  return url
+}
+
 /** Sau ngưỡng này mà request chưa xong, coi như backend (Render free) đang "thức dậy". */
 const SLOW_REQUEST_MS = 4000
 
@@ -119,6 +137,11 @@ export const api = {
   /** Autosave: chỉ gửi field đã đổi. `keepalive` dùng khi đóng tab (giới hạn body ~64KB của trình duyệt). */
   updateNote: (id, patch, { keepalive = false } = {}) => request(`/api/notes/${id}`, { method: 'PATCH', json: patch, keepalive }),
   deleteNote: (id) => request(`/api/notes/${id}`, { method: 'DELETE' }),
+
+  /** Tải 1 ảnh vào note (Supabase Storage). Trả { id, url (tương đối), ... }. */
+  uploadNoteImage: (noteId, file, options) => uploadWithProgress(`/api/notes/${noteId}/images`, { file }, options),
+  /** Ảnh công thức vẽ tay (PNG) -> { latex, raw_markdown, multiple }. */
+  formulaOcr: (blob) => uploadWithProgress('/api/notes/formula-ocr', { image: new File([blob], 'formula.png', { type: 'image/png' }) }).promise,
 
   listNoteFolders: () => request('/api/note-folders'),
   createNoteFolder: (name, parentId = null) => request('/api/note-folders', { method: 'POST', json: { name, parent_id: parentId } }),

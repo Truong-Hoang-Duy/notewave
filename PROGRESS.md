@@ -679,8 +679,8 @@
   với PDF 12 trang: mở preview → cuộn 1500px → Đóng (và thử cả phím Esc) → hộp thoại đóng, `rootHtmlLength = 18108`,
   danh sách file còn nguyên, không có lỗi/console error nào. `vite build` OK, `oxlint` không có cảnh báo mới.
 
-## [2026-09-18] — Phân tích đặc tả "Ghi chú Cornell" (`NoteWave_Note_Feature_Prompt.md`) + chốt quyết định (chưa code)
-- Đã làm: đánh giá tính khả thi của đặc tả, đối chiếu với code hiện tại, hỏi người dùng các quyết định ở mục 1 của đặc tả.
+## [2026-09-18] — Phân tích yêu cầu "Ghi chú Cornell" + chốt quyết định (chưa code)
+- Đã làm: đánh giá tính khả thi của yêu cầu tính năng, đối chiếu với code hiện tại, hỏi người dùng các quyết định kiến trúc.
 - Quyết định đã chốt (người dùng trả lời):
   - **Không đồng bộ nhiều thiết bị** (không polling / WebSocket / Supabase Realtime). App vẫn một người dùng, không auth.
   - **Không kiểm tra phiên bản khi lưu** — last-write-wins. Người dùng chấp nhận rủi ro: tab/thiết bị giữ nội dung cũ
@@ -701,7 +701,7 @@
     `/api/notes/from-session/{id}`.
   - **Tóm tắt AI:** agent `NoteSummary` riêng (ý chính, khái niệm, câu hỏi ôn tập), dùng chung `SUMMARY_MODEL` +
     `build_model_settings`; không dùng `MeetingSummary`.
-  - Chưa hỏi lại nhưng áp dụng theo đặc tả: canvas thuần cho bảng vẽ công thức; xuất PDF bằng `window.print()`;
+  - Chưa hỏi lại nhưng áp dụng theo đề xuất ban đầu: canvas thuần cho bảng vẽ công thức; xuất PDF bằng `window.print()`;
     backlink do backend tự tính lại từ node liên kết trong nội dung mỗi lần lưu (chỉ cần `GET .../backlinks`).
 - File/module đã thay đổi: `PROGRESS.md`
 - Việc cần làm tiếp theo:
@@ -737,7 +737,7 @@
 - Việc cần làm tiếp theo: Thử nghiệm 2 (Tiptap + bộ gõ tiếng Việt trên Android thật) hoặc bắt đầu Giai đoạn 1.
 
 ## [2026-09-18] — Ghi chú Cornell: GIAI ĐOẠN 1 XONG (nền tảng note, online-only)
-- Trạng thái giai đoạn của tính năng Ghi chú (`NoteWave_Note_Feature_Prompt.md` mục 6): **Giai đoạn 1 — xong.**
+- Trạng thái giai đoạn của tính năng Ghi chú (xem "Lộ trình Ghi chú" bên dưới): **Giai đoạn 1 — xong.**
   Giai đoạn 2 (ảnh / bảng / KaTeX / vẽ công thức → LaTeX / paste) — chưa bắt đầu. Giai đoạn 3–5 — chưa bắt đầu
   (GĐ4 phần đồng bộ nhiều thiết bị đã bị bỏ theo quyết định của người dùng).
 - Đã làm:
@@ -780,7 +780,7 @@
   - Lỗi phát hiện qua kiểm thử và đã sửa: (1) hiệu ứng nháy bằng class bị ProseMirror gỡ ngay → `el.animate()`;
     (2) chấm đánh dấu đoạn được neo trông như dấu đầu dòng → vạch dọc + nền nhạt; (3) textarea câu hỏi cao 0px khi mount
     lúc tab đang ẩn (chữ không hiện trên mobile) → `useAutoGrow` với ResizeObserver; (4) preview danh sách còn dấu `-`.
-- Đang dang dở / chưa xong: chưa có export note (.txt/.docx/.pdf — đặc tả để GĐ5, có thể làm sớm bằng `content_md` +
+- Đang dang dở / chưa xong: chưa có export note (.txt/.docx/.pdf — lộ trình để GĐ5, có thể làm sớm bằng `content_md` +
   `markdown_docx.py`); chưa có kéo-thả note/thư mục (chuyển thư mục cha qua menu "Chuyển tới…", chuyển note qua dropdown).
 - Việc cần làm tiếp theo: Giai đoạn 2 — thêm `katex`/`remark-math`/`rehype-katex`, `@tiptap/extension-mathematics`,
   `@tiptap/extension-table`; ảnh qua Supabase Storage (biến mới `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `NOTE_ASSETS_BUCKET`
@@ -840,3 +840,162 @@
 - Vấn đề đã biết: chưa thử bàn phím ảo trên iOS/Android thật (iOS còn tự cuộn layout viewport khi focus ô nhập — có thể cần
   tinh chỉnh thêm sau khi thử máy thật); màn hình rất thấp (<~600px chiều cao, hoặc bàn phím mở trên máy nhỏ) chạm mức tối
   thiểu 220px nên trang cuộn nhẹ.
+
+## [2026-09-19] — Bỏ file đặc tả Ghi chú, chuyển lộ trình vào đây
+- Người dùng không cần file đặc tả Ghi chú nữa (đã xoá khỏi repo) → bỏ mọi chỗ nhắc tới trong `CLAUDE.md`,
+  `GEMINI.md`, `PROGRESS.md`. Phần lộ trình còn dùng được chép lại ở mục dưới (đã áp các quyết định của người dùng).
+- File/module đã thay đổi: `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`
+
+### Lộ trình Ghi chú (nguồn duy nhất — cập nhật trạng thái tại đây)
+- **GĐ1 — Nền tảng** (xong 2026-09-18): note / thư mục cây / tag, CRUD + tìm/lọc/sắp xếp, layout Cornell, editor Tiptap,
+  tự lưu + nháp cục bộ, giao diện riêng từng note, chế độ ôn tập.
+- **GĐ2 — Nội dung phong phú** (xong 2026-09-19, chờ người dùng thêm `SUPABASE_SECRET_KEY` để chạy ảnh thật): chèn ảnh (Supabase Storage qua REST từ backend, bucket private), bảng, công thức toán KaTeX
+  (dùng chung cho `OcrDocumentView`), vẽ tay công thức → Mistral OCR → LaTeX (kết luận Thử nghiệm 1: cắt sát nét, gửi data
+  URI, chuẩn hoá dấu bọc, luôn xem trước + sửa trước khi chèn), dán nội dung có định dạng / dán ảnh trực tiếp.
+- **GĐ3 — Liên kết & AI:** backlink giữa các note (`[[...]]`, backend tự tính lại liên kết mỗi lần lưu, panel "note trỏ
+  tới note này"); tóm tắt AI bằng agent `NoteSummary` riêng (ý chính, khái niệm, câu hỏi ôn tập; dùng chung
+  `SUMMARY_MODEL`), cột `ai_summary` tách khỏi tóm tắt tự viết; gợi ý sửa lỗi chính tả cho nội dung note (mẫu
+  `ocr_review_agent`, chạy khi người dùng bấm, không chạy mỗi lần lưu). Không có "tạo note từ phiên" (đã bỏ).
+- **GĐ4 — Offline:** đồng bộ nhiều thiết bị đã BỎ theo quyết định người dùng; còn lại tuỳ chọn: IndexedDB + PWA (cần duyệt
+  `dexie`, `vite-plugin-pwa` trước khi làm).
+- **GĐ5 — Export & input:** export .txt / .docx (từ `content_md` + `markdown_docx.py`) / .pdf (`window.print()` + CSS
+  `@media print`); nút "Ghi âm nhanh" trong note dùng lại luồng Soniox trực tiếp (`useLiveTranscription`), transcript đổ vào
+  nội dung; rà soát UX mobile trên máy thật (bộ gõ tiếng Việt, bàn phím ảo iOS/Android, canvas cảm ứng).
+- Định nghĩa "xong" mỗi giai đoạn: `pytest` pass (trừ `-k live`) + test cho endpoint mới; `vite build` OK, `oxlint` không cảnh
+  báo mới; kiểm thử UI ở ≥ 2 kích thước (desktop + mobile); cập nhật `PROGRESS.md`, `CLAUDE.md`, `.env.example` khi cần.
+
+## [2026-09-19] — Ghi chú: GIAI ĐOẠN 2 XONG (ảnh, bảng, công thức KaTeX, vẽ công thức → LaTeX, dán nội dung)
+- Trạng thái lộ trình Ghi chú: GĐ1 xong, **GĐ2 xong** (ảnh cần `SUPABASE_SECRET_KEY` thật mới chạy trên máy/Render — xem
+  "Việc cần làm tiếp theo"), GĐ3 chưa bắt đầu.
+- Đã làm:
+  - **Ảnh (Supabase Storage):** `services/storage.py` (REST bằng `httpx`, không SDK; tự tạo bucket PRIVATE `note-assets` ở lần tải
+    đầu; khoá `sb_secret_` gửi `apikey`, khoá JWT cũ gửi thêm Bearer), `services/note_media.py` (nhận dạng PNG/JPEG/WebP/GIF
+    theo magic bytes, giới hạn dung lượng, dọn ảnh khi xoá note), bảng `note_assets`, endpoint `POST /api/notes/{id}/images`,
+    `GET /api/note-images/{id}` (307 tới signed URL 1 giờ). Nội dung note chỉ lưu `/api/note-images/<id>`. Frontend: nén ở
+    trình duyệt (`lib/imageCompress.js`, ≤ 2000px, WebP — ảnh thử 12,5 KB PNG → 5,1 KB WebP), ô chờ tải là decoration
+    (`lib/noteImages.js`), chèn qua nút / dán / kéo thả; thả giữa dòng chữ thì đặt ở ranh giới khối.
+  - **Bảng:** `TableKit` (resizable, cột tối thiểu 96px, cuộn ngang trong `.tableWrapper`), thanh "Bảng:" (thêm/xoá hàng
+    cột, bật/tắt hàng tiêu đề, xoá bảng).
+  - **Công thức:** `@tiptap/extension-mathematics` + KaTeX; `MathDialog` (xem trước KaTeX trực tiếp, báo lỗi cú pháp, nút chèn
+    nhanh ký hiệu, trong dòng / khối riêng, sửa khi bấm vào công thức); gõ tắt `$$x$$` / `$$$x$$$`.
+  - **Vẽ công thức → LaTeX:** `DrawFormulaDialog` (canvas, Pointer Events, bút / ngón tay / chuột, hoàn tác, xoá hết; cắt sát nét
+    trước khi gửi) → `POST /api/notes/formula-ocr` (Mistral OCR qua data URI) → `normalize_formula` → mở `MathDialog` để kiểm
+    tra rồi mới chèn (cảnh báo riêng khi nhận ra nhiều công thức).
+  - **KaTeX cho phiên Quét tài liệu:** `OcrDocumentView` dùng `remark-math` + `rehype-katex`; `ocr_review_agent` không bao giờ
+    đề xuất / áp dụng sửa chữ bên trong công thức.
+  - `/api/health` thêm `note_images_configured`; nút chèn ảnh tự tắt (kèm lý do) khi chưa cấu hình.
+  - Bỏ mọi chỗ nhắc file đặc tả Ghi chú (người dùng không cần) — lộ trình nằm ở mục "Lộ trình Ghi chú" trong file này.
+- File/module đã thay đổi:
+  - Backend mới: `app/services/storage.py`, `app/services/note_media.py`, `app/routers/note_media.py`, `tests/storage_fake.py`,
+    `tests/test_note_media.py`. Sửa: `app/config.py`, `app/dependencies.py`, `app/main.py`, `app/models/note.py`
+    (`NoteAsset`, `NoteImageRead`, `FormulaOcrResult`), `app/routers/notes.py` (xoá note dọn ảnh), `app/services/ocr.py`
+    (`extract_formula`, `normalize_formula`), `app/services/ocr_review_agent.py` (bỏ qua công thức), `tests/conftest.py`.
+  - Frontend mới: `components/notes/MathDialog.jsx`, `components/notes/DrawFormulaDialog.jsx`, `lib/noteImages.js`,
+    `lib/imageCompress.js`. Sửa: `components/notes/NoteContentEditor.jsx`, `components/notes/NoteDetail.jsx`,
+    `components/OcrDocumentView.jsx`, `lib/api.js` (`apiUrl`, `toApiPath`, `uploadNoteImage`, `formulaOcr`), `lib/noteEditor.js`
+    (neo được bảng / ảnh / công thức; "đáp án" ôn tập hiện LaTeX / nhãn ảnh), `index.css`, `vite.config.js` (chunk KaTeX),
+    `package.json` + lock (`@tiptap/extension-table|image|mathematics`, `katex@^0.16`, `remark-math`, `rehype-katex`).
+  - Khác: `.env.example`, `render.yaml`, `DEPLOY.md` (biến mới, checklist kiểm thử, xử lý sự cố, giới hạn Storage 1GB),
+    `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Đã kiểm thử:
+  - `pytest` toàn bộ: **83 passed, 2 skipped** (11 test mới: tải ảnh + tự tạo bucket + nhận dạng định dạng, lỗi 404/413/415/422/
+    502/503, chuyển hướng signed URL, xoá note dọn ảnh (kể cả khi Storage lỗi), suy ra `SUPABASE_URL`, formula-ocr gửi data URI
+    không qua Files API, chuẩn hoá LaTeX trên kết quả Mistral thật của Thử nghiệm 1, rà soát OCR bỏ qua công thức).
+  - UI qua CDP với backend thật (schema `notewave_test`, Storage giả lập trong bộ nhớ có route trả file để ảnh hiển thị được,
+    Mistral THẬT cho vẽ công thức): desktop 31 bước (bảng, công thức: chèn / sửa / đổi kiểu / gõ tắt / LaTeX sai bị chặn, ảnh:
+    chọn file / dán / kéo thả + hiển thị + không cắt đôi từ, dán HTML có định dạng, **vẽ "2+3=5" bằng chuột → Mistral trả đúng
+    `2 + 3 = 5`**, Markdown lưu đúng, tải lại còn nguyên, xoá note dọn ảnh, KaTeX trong phiên OCR); mobile 390px 10 bước (thanh
+    công cụ cuộn ngang, bảng 6 cột cuộn ngang với cột 96px, vẽ bằng ngón tay, hộp thoại công thức vừa màn hình, không tràn
+    trang). Chạy lại 4 kịch bản GĐ1 (desktop 25, mobile 23, đánh số 12, khung cố định 46) — qua hết. Không lỗi console.
+  - `vite build` OK (KaTeX chunk dùng chung 77 KB gzip; `NoteDetail` 181 KB gzip; `OcrDocumentView` 52 KB gzip); `oxlint` không
+    cảnh báo mới.
+  - Lỗi phát hiện qua kiểm thử và đã sửa: bảng nhiều cột trên điện thoại bị ép tới mức chữ gãy từng ký tự (→ resizable +
+    `cellMinWidth`); thả ảnh giữa dòng chữ cắt đôi từ (→ đặt ở ranh giới khối); CSS ảnh áp nhầm lên `img.ProseMirror-separator`;
+    2 bản KaTeX (0.18 + 0.16) cùng vào bundle (→ ghim `katex@^0.16`).
+- Việc cần làm tiếp theo:
+  1. **Người dùng thêm `SUPABASE_SECRET_KEY`** (Supabase Dashboard → Project Settings → API Keys → Secret keys) vào `.env` và
+     Render, rồi chạy thử chèn ảnh thật một lần (bucket `note-assets` tự tạo). Chưa kiểm chứng được với Storage thật.
+  2. GĐ3: backlink `[[...]]`, tóm tắt AI `NoteSummary`, gợi ý sửa chính tả cho note.
+- Vấn đề đã biết:
+  - Ảnh bị xoá khỏi nội dung nhưng note vẫn còn thì file vẫn nằm trên Storage (cố ý — tránh mất ảnh khi Hoàn tác); cần dọn định
+    kỳ nếu dung lượng 1GB gần đầy.
+  - Dán HTML từ web có `<img src="https://...">` thì ảnh vẫn trỏ về trang gốc (không tải lại lên Storage); ảnh base64 trong HTML
+    dán vào bị bỏ (`allowBase64: false`).
+  - Vẽ công thức chỉ kiểm chứng bằng nét chuột mô phỏng ("2+3=5") — cần thử chữ viết tay thật trên máy cảm ứng / bút.
+  - Chunk `NoteDetail` > 500 KB (chưa nén) nên Vite cảnh báo — chunk lazy, chỉ tải khi mở ghi chú.
+
+## [2026-09-19] — Ghi chú: xoá ảnh khỏi nội dung thì xoá luôn file trên Supabase Storage
+- Yêu cầu (người dùng): xoá ảnh trong note thì xoá cả ở Storage (trước đó chỉ dọn khi xoá cả note).
+- Cách làm (có thời gian chờ để không phá Hoàn tác / ảnh dùng chung):
+  - Cột mới `note_assets.orphaned_at` (nullable, index — `_add_missing_columns` tự thêm vào DB thật khi khởi động).
+  - `PATCH /api/notes/{id}` có `content_md`: `sync_note_images` đánh dấu ảnh của note không còn trong nội dung, bỏ đánh dấu
+    ảnh xuất hiện lại (Ctrl+Z, dán ảnh copy từ note khác); sau đó `purge_orphan_images` xoá thật (Storage + dòng) các ảnh đã
+    chờ quá `ORPHAN_GRACE = 10 phút` (tối đa 50 ảnh / lần, của mọi note). Cũng chạy sau khi xoá note. Lưu không đổi nội dung
+    (đổi tiêu đề, tag…) không chạy dọn.
+  - Ảnh mới tải lên bắt đầu ở trạng thái chờ → tải lên nhưng không bao giờ chèn (đóng tab giữa chừng) cũng được dọn.
+  - Ảnh vẫn nằm trong nội dung note khác → không xoá, chuyển quyền sở hữu sang note đó (áp dụng cả khi xoá note).
+  - Storage lỗi khi xoá → giữ dòng (đánh dấu quá hạn) để lần dọn sau thử lại, không để file mồ côi.
+- File/module đã thay đổi: `server/app/models/note.py`, `server/app/services/note_media.py`, `server/app/routers/notes.py`
+  (PATCH/DELETE thành async, gọi sync/purge), `server/tests/test_note_media.py`, `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Đã kiểm thử: `pytest` toàn bộ **86 passed, 2 skipped** (3 test mới: xoá → chờ → Hoàn tác → xoá thật sau thời gian chờ; ảnh tải
+  lên không chèn bị dọn; ảnh dùng chung giữa các note được giữ và chuyển chủ; sửa test xoá note khi Storage lỗi). UI qua CDP
+  (backend thật, schema test, Storage giả lập, thời gian chờ rút còn 8 giây): chèn ảnh → chọn ảnh + Delete → file còn → Ctrl+Z →
+  ảnh quay lại, qua thời gian chờ vẫn còn, tải lại trang vẫn hiện → xoá lần 2 → quá thời gian chờ → lần lưu kế tiếp xoá file
+  (7 bước, không lỗi console). Chạy lại kịch bản GĐ2 desktop (31) + mobile (10) — qua hết.
+- Vấn đề đã biết:
+  - File chỉ bị xoá ở **lần lưu nội dung tiếp theo sau 10 phút** (bất kỳ note nào) — Render free không có job nền định kỳ; nếu
+    không ai sửa note nữa, ảnh chờ xoá vẫn nằm trên Storage tới lần sửa sau.
+  - Hoàn tác SAU hơn 10 phút (và đã có lần lưu nội dung khác) → ảnh đã bị xoá, hiện ảnh hỏng — chèn lại ảnh.
+  - Kiểm tra "note khác còn dùng ảnh" dựa trên `search_text` (chứa `content_md`); nếu sau này tách nội dung khỏi `search_text`
+    phải đổi truy vấn trong `_other_note_using`.
+
+## [2026-09-19] — Ghi chú: bảng ký hiệu / mẫu công thức đầy đủ cho hộp thoại chèn công thức
+- Yêu cầu (người dùng): bổ sung thêm nhiều công thức toán học cho việc chèn công thức (trước chỉ có 18 nút).
+- Đã làm:
+  - `lib/mathSnippets.js`: **7 nhóm, 272 mục** — Cơ bản (53: phân số, căn bậc n, mũ/chỉ số, ngoặc tự co giãn, giá trị tuyệt đối,
+    làm tròn, phép toán, so sánh, dấu trên đầu, ngoặc nhọn trên/dưới, chữ trong công thức, khoảng trắng, dấu ba chấm…), Hy Lạp
+    (40: đủ chữ thường + biến thể + chữ hoa), Giải tích (46: giới hạn trái/phải, tổng, tích, nguyên hàm, tích phân xác định / kép
+    / bội ba / đường, thế cận, đạo hàm các kiểu, đạo hàm riêng, nabla, mũ, log, lượng giác + ngược + hyperbolic, max/min/sup/inf),
+    Tập hợp · Logic (48: quan hệ tập hợp, ℕ ℤ ℚ ℝ ℂ, đoạn/khoảng, lượng từ, phép logic, hình học, chia hết, đồng dư), Mũi tên (18),
+    Ma trận · Hệ (19: ma trận 2×2 / 3×3, định thức, vector cột, hệ 2–3 phương trình, tuyển, hàm nhiều nhánh, biến đổi thẳng hàng,
+    tổ hợp/chỉnh hợp, chuyển vị, nghịch đảo, tích vô hướng / có hướng), Mẫu công thức (48 công thức hoàn chỉnh có tên tiếng Việt:
+    bậc hai, Vi-ét, Pytago, hằng đẳng thức, nhị thức Newton, cấp số, đạo hàm, Newton–Leibniz, từng phần, lượng giác, định lý
+    sin/cos, logarit, hình học giải tích, xác suất / Bayes / thống kê, số phức, vật lý).
+  - `components/notes/MathPalette.jsx`: tab nhóm (điện thoại cuộn ngang, desktop xuống dòng — đủ 7 tab), lưới nút hiển thị ký hiệu
+    bằng KaTeX (cache, chỉ render nhóm đang mở), tooltip tên tiếng Việt + LaTeX, nhóm Mẫu công thức dạng danh sách "tên + công
+    thức"; nhớ nhóm vừa dùng. `MathDialog` dùng bảng này thay 18 nút cũ.
+  - Chèn: con trỏ vào ô `{}` đầu tiên (gõ ngay vào tử số / ô ma trận…); lệnh kết thúc bằng chữ (`\alpha`, `\le`…) chèn ngay trước
+    một chữ cái thì tự thêm dấu cách (tránh thành lệnh lạ `\alphax`).
+- File/module đã thay đổi: `client/src/lib/mathSnippets.js` (mới), `client/src/components/notes/MathPalette.jsx` (mới),
+  `client/src/components/notes/MathDialog.jsx`, `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Đã kiểm thử:
+  - Script Node chạy KaTeX thật (`strict: 'error'`) trên cả 272 mục ở dạng chèn và dạng hiển thị: 0 lỗi, 0 trùng (phát hiện và sửa
+    3 lỗi: `\text{}` không nhận □, chữ "đ" trong công thức phải bọc `\text{}`; 2 nút khoảng trắng hiển thị trống -> vẽ `□ □`).
+  - UI qua CDP ở 1280px và 390px (19 bước): 7 nhóm, đủ 272 nút đều render KaTeX, không tràn ngang, desktop hiện đủ 7 tab, chèn mẫu
+    "Nghiệm phương trình bậc hai" đúng LaTeX, "Phân số" -> gõ "1" ra `\frac{1}{}`, `\alpha` trước "x" -> `\alpha x`, ma trận 2×2
+    chèn vào ghi chú render KaTeX, mở lại hộp thoại nhớ nhóm vừa dùng. Chạy lại kịch bản GĐ2 desktop (31 bước) — qua. Không lỗi
+    console. `vite build` OK, `oxlint` không cảnh báo mới.
+- Vấn đề đã biết: chưa có ô tìm kiếm ký hiệu theo tên (có tooltip tên từng nút); chưa có ký hiệu hoá học (`\ce` cần extension
+  mhchem của KaTeX — chưa thêm).
+
+## [2026-09-19] — Hộp thoại chèn công thức không cuộn cả thân + sửa lỗi dọn ảnh khi chưa cấu hình Storage
+- Yêu cầu (người dùng): khung modal "Chèn công thức" đang cuộn cả thân (màn hình ~800px) — không muốn có thanh cuộn đó.
+- Đã làm:
+  - `Modal.jsx`: thêm prop `flexBody` (thân là cột flex, con `min-h-0` co lại được; chỉ màn hình cực thấp mới còn cuộn dự phòng).
+    Mặc định tắt — các hộp thoại khác không đổi.
+  - `MathDialog.jsx` dùng `flexBody`: ô LaTeX (2 dòng), chọn kiểu, ô xem trước, nút giữ nguyên kích thước (`shrink-0`); riêng
+    `MathPalette` co lại theo chỗ trống (lưới ký hiệu `min-h-[5.5rem]`, tối đa 13–15rem, tự cuộn bên trong).
+  - **Sửa lỗi phát hiện khi rà soát** (`services/note_media.py::_delete_assets`): khi chưa / tạm mất cấu hình Storage mà có ảnh
+    đến hạn dọn, trước đây xoá dòng `note_assets` nhưng bỏ qua file -> mất dấu file trên Storage. Nay giữ nguyên dòng để lần dọn
+    sau (khi có cấu hình) xoá cả file. Thêm test `test_purge_keeps_rows_when_storage_unconfigured`.
+- File/module đã thay đổi: `client/src/components/Modal.jsx`, `client/src/components/notes/MathDialog.jsx`,
+  `client/src/components/notes/MathPalette.jsx`, `server/app/services/note_media.py`, `server/tests/test_note_media.py`,
+  `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Đã kiểm thử: `pytest` toàn bộ qua (87 passed, 2 skipped). UI qua CDP: hộp thoại công thức ở 1280×800 / 700 / 600, 390×844 / 667,
+  360×640 — thân KHÔNG cuộn, bảng ký hiệu còn 88–209px (tự cuộn bên trong), ô xem trước và nút Chèn luôn trong màn hình (18 bước);
+  chạy lại bảng ký hiệu (19), GĐ2 desktop (31), xoá ảnh (7) — qua hết, không lỗi console. `vite build` OK, `oxlint` không cảnh báo mới.
+- **Sự cố trong lúc kiểm thử (đã kiểm tra, không ảnh hưởng dữ liệu):** một lần chạy kịch bản UI rơi vào phiên `npm run dev` của
+  người dùng đang giữ cổng 8000/5173 (server kiểm thử của agent không bind được cổng) -> kịch bản tạo rồi xoá 1 note thử
+  "Hộp thoại vừa màn hình" trên DB thật. Đã kiểm tra chỉ-đọc: note thử đã bị xoá (0 bản ghi), note thật còn nguyên, không có ảnh.
+  Từ nay kiểm thử UI của agent chạy ở cổng riêng (backend 8001, Vite 5174 qua `createServer`, không sửa `vite.config.js`) và bộ
+  điều khiển trình duyệt từ chối chạy nếu backend không phải launcher kiểm thử (thiếu route `/__fake_storage_list`).

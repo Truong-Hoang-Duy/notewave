@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.config import export_llm_provider_keys, get_settings
 from app.db import check_database, describe_database, init_db
-from app.routers import groups, note_folders, notes, ocr, sessions, tags, temporary_key, upload, webhooks
+from app.routers import groups, note_folders, note_media, notes, ocr, sessions, tags, temporary_key, upload, webhooks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 settings = get_settings()
@@ -48,6 +48,8 @@ app.include_router(groups.router)
 app.include_router(upload.router)
 app.include_router(ocr.router)
 app.include_router(webhooks.router)
+# note_media trước notes: /api/notes/formula-ocr không bị hiểu là /api/notes/{note_id}.
+app.include_router(note_media.router)
 app.include_router(notes.router)
 app.include_router(note_folders.router)
 app.include_router(tags.router)
@@ -59,6 +61,7 @@ class HealthResponse(BaseModel):
     database_error: str | None = None  # tên loại lỗi, không kèm chi tiết connection string
     soniox_configured: bool
     ocr_configured: bool
+    note_images_configured: bool  # có Supabase Storage (SUPABASE_SECRET_KEY) -> chèn được ảnh vào ghi chú
     webhook_enabled: bool
 
 
@@ -73,5 +76,6 @@ def health() -> HealthResponse:
         database_error=db_error,
         soniox_configured=bool(settings.soniox_api_key),
         ocr_configured=bool(settings.mistral_api_key),
+        note_images_configured=bool(settings.supabase_storage_url and settings.supabase_secret_key),
         webhook_enabled=settings.webhook_url is not None,
     )

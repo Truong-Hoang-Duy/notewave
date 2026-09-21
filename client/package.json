@@ -11,19 +11,25 @@
   },
   "dependencies": {
     "@soniox/client": "^2.3.0",
+    "@tiptap/extension-image": "^3.31.3",
     "@tiptap/extension-list": "^3.31.3",
+    "@tiptap/extension-mathematics": "^3.31.3",
+    "@tiptap/extension-table": "^3.31.3",
     "@tiptap/extension-unique-id": "^3.31.3",
     "@tiptap/extensions": "^3.31.3",
     "@tiptap/markdown": "^3.31.3",
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
+    "katex": "^0.16.47",
     "lucide-react": "^1.46.0",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

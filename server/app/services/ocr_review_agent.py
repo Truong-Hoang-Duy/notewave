@@ -81,11 +81,24 @@ def _word_pattern(original: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){re.escape(original)}(?!\w)")
 
 
+# Công thức LaTeX do Mistral OCR trả ($$...$$, \[...\], \(...\), $...$) — không bao giờ sửa chữ bên trong: `\sin`, `\lim`,
+# tên biến... là lệnh / ký hiệu LaTeX, không phải lỗi chính tả (render bằng KaTeX ở OcrDocumentView).
+_MATH_SPAN = re.compile(r"\$\$.+?\$\$|\\\[.+?\\\]|\\\(.+?\\\)|(?<![\\$])\$(?!\s)[^$\n]+?(?<!\s)\$(?![$\d])", re.DOTALL)
+
+
+def _matches_outside_math(pattern: re.Pattern[str], text: str) -> list[re.Match[str]]:
+    spans = [m.span() for m in _MATH_SPAN.finditer(text)]
+    return [m for m in pattern.finditer(text) if not any(m.start() < end and m.end() > start for start, end in spans)]
+
+
 def apply_correction(text: str, original: str, corrected: str) -> tuple[str, int]:
-    """Thay mọi lần xuất hiện NGUYÊN TỪ `original` bằng `corrected`. Trả (text mới, số chỗ đã thay)."""
+    """Thay mọi lần xuất hiện NGUYÊN TỪ `original` (ngoài công thức) bằng `corrected`. Trả (text mới, số chỗ đã thay)."""
     if not original:
         return text, 0
-    return _word_pattern(original).subn(lambda _: corrected, text)
+    matches = _matches_outside_math(_word_pattern(original), text)
+    for m in reversed(matches):
+        text = text[: m.start()] + corrected + text[m.end() :]
+    return text, len(matches)
 
 
 def page_label(page: int) -> str:
@@ -127,8 +140,8 @@ def normalize_corrections(pages: list[OcrPage], proposed: list[ProposedCorrectio
             continue
         if (c.page, original) in seen:
             continue
-        if not _word_pattern(original).search(text):
-            continue
+        if not _matches_outside_math(_word_pattern(original), text):
+            continue  # không có thật, hoặc chỉ nằm trong công thức LaTeX
         seen.add((c.page, original))
         context = (c.context or "").strip() or None
         result.append(ProposedCorrection(page=c.page, original=original, corrected=corrected, context=context))
