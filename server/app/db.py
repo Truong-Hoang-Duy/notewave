@@ -44,6 +44,7 @@ def create_db_engine(url: str) -> Engine:
             # transaction; tắt prepared statement của psycopg để chạy được cả pooler lẫn kết nối trực tiếp.
             "prepare_threshold": None,
             "application_name": "notewave-api",
+            "connect_timeout": 4,
         },
     )
 

@@ -20,7 +20,15 @@ os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 async def lifespan(app: FastAPI):
     export_llm_provider_keys(settings)
     logging.getLogger("app").info("Database: %s", describe_database())
-    init_db()
+    try:
+        init_db()
+    except Exception as exc:
+        logging.getLogger("app").warning(
+            "⚠️ Không thể kết nối database khi khởi động: %s. "
+            "Dự án Supabase có thể đang bị TẠM DỪNG (Paused), sai thông tin kết nối hoặc mạng bị chặn port 6543. "
+            "Backend vẫn tiếp tục khởi động ở chế độ degraded.",
+            exc,
+        )
     async with (
         httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as http,
         # Mistral OCR: PDF nhiều trang có thể xử lý vài phút (SDK còn đặt timeout riêng cho từng request).
