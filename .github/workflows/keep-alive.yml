@@ -2,8 +2,9 @@ name: Keep-Alive Backend
 
 on:
   schedule:
-    # Chạy mỗi 10 phút để giữ Render free không bị spin down (Render ngủ sau 15 phút không có request)
-    - cron: '*/10 * * * *'
+    # Chạy mỗi 3 ngày 1 lần lúc 02:00 UTC (09:00 sáng VN) để giữ Supabase không bị Pause (Supabase pause sau 7 ngày rảnh).
+    # Để Render tự ngủ bình thường sau 15 phút nhằm tiết kiệm 750 giờ/tháng chia sẻ cho các dự án khác.
+    - cron: '0 2 */3 * *'
   workflow_dispatch:
 
 jobs:
