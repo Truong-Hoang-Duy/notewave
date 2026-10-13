@@ -24,6 +24,7 @@ const batchLabel = (items) => (items.length === 1 ? items[0].file.name : `${item
  * stage: select | uploading | processing | done | failed
  */
 export default function FileIngestPage({ config, onOpenHistory, onOpenSession }) {
+  const { storageKey } = config
   const [stage, setStage] = useState('select')
   const [items, setItems] = useState([]) // [{ id, file }]
   const [progress, setProgress] = useState(0)
