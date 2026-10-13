@@ -3,12 +3,14 @@ import {
   BookOpenCheck,
   Check,
   CloudOff,
+  Download,
   FileText,
   GraduationCap,
   ListTree,
   Loader2,
   MoreHorizontal,
   NotebookText,
+  Printer,
   SpellCheck,
   Trash2,
 } from 'lucide-react'
@@ -74,7 +76,151 @@ function SaveStatus({ status, error, updatedAt, isOffline }) {
   )
 }
 
-function MoreMenu({ onDelete }) {
+function downloadClientNoteTxt(note) {
+  const lines = [
+    note.title || 'Ghi chú không tên',
+    '='.repeat(Math.max((note.title || '').length, 10)),
+    `Lần sửa gần nhất: ${formatDateTime(note.updated_at || new Date().toISOString())}`,
+  ]
+  if (note.folder?.name) lines.push(`Thư mục: ${note.folder.name}`)
+  if (note.tags?.length) lines.push(`Thẻ: ${note.tags.map((t) => '#' + t.name).join(', ')}`)
+  lines.push('')
+
+  const activeCues = (note.cues || []).filter((c) => c.text && c.text.trim())
+  if (activeCues.length) {
+    lines.push('--------------------------------------------------')
+    lines.push('CÂU HỎI & TỪ KHOÁ (Cột gợi ý Cornell)')
+    lines.push('--------------------------------------------------')
+    activeCues.forEach((c, i) => lines.push(`${i + 1}. ${c.text}`))
+    lines.push('')
+  }
+
+  lines.push('--------------------------------------------------')
+  lines.push('NỘI DUNG GHI CHÚ')
+  lines.push('--------------------------------------------------')
+  lines.push(note.content_md || '(Chưa có nội dung)')
+  lines.push('')
+
+  if (note.summary && note.summary.trim()) {
+    lines.push('--------------------------------------------------')
+    lines.push('TÓM TẮT CỦA BẠN')
+    lines.push('--------------------------------------------------')
+    lines.push(note.summary)
+    lines.push('')
+  }
+
+  if (note.ai_summary) {
+    lines.push('--------------------------------------------------')
+    lines.push('TÓM TẮT AI')
+    lines.push('--------------------------------------------------')
+    lines.push(note.ai_summary.summary || '')
+    lines.push('')
+    if (note.ai_summary.key_points?.length) {
+      lines.push('Ý chính:')
+      note.ai_summary.key_points.forEach((p) => lines.push(`- ${p}`))
+      lines.push('')
+    }
+    if (note.ai_summary.concepts?.length) {
+      lines.push('Khái niệm cốt lõi:')
+      note.ai_summary.concepts.forEach((c) => lines.push(`- ${c.term}: ${c.meaning}`))
+      lines.push('')
+    }
+    if (note.ai_summary.review_questions?.length) {
+      lines.push('Câu hỏi ôn tập AI:')
+      note.ai_summary.review_questions.forEach((q) => lines.push(`- ${q}`))
+      lines.push('')
+    }
+  }
+
+  const content = '\ufeff' + lines.join('\n') + '\n'
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${(note.title || 'ghi-chu').trim().replace(/[/\\?%*:|"<>]/g, '-')}.txt`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+function NoteExportMenu({ onExportDocx, onExportTxt, onPrint, exporting }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useDismiss(ref, open, () => setOpen(false))
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        size="sm"
+        variant="ghost"
+        icon={exporting ? Loader2 : Download}
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Xuất file"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Xuất file Word, Text hoặc In / PDF"
+      >
+        <span className="hidden sm:inline">Xuất file</span>
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute top-full right-0 z-40 mt-2 w-56 animate-slide-up rounded-xl border border-line bg-surface p-1.5 shadow-float"
+        >
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onExportDocx()
+            }}
+            className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-paper transition-colors"
+          >
+            <FileText className="mt-0.5 size-4 text-brand-600 shrink-0" />
+            <span>
+              <span className="block text-sm font-medium text-ink">Word (.docx)</span>
+              <span className="block text-xs text-muted">Có định dạng, tiêu đề & KaTeX</span>
+            </span>
+          </button>
+
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onExportTxt()
+            }}
+            className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-paper transition-colors"
+          >
+            <FileText className="mt-0.5 size-4 text-brand-600 shrink-0" />
+            <span>
+              <span className="block text-sm font-medium text-ink">Văn bản (.txt)</span>
+              <span className="block text-xs text-muted">Nhẹ, đọc được ở mọi nơi</span>
+            </span>
+          </button>
+
+          <div className="my-1 border-t border-line" />
+
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onPrint()
+            }}
+            className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-paper transition-colors"
+          >
+            <Printer className="mt-0.5 size-4 text-brand-600 shrink-0" />
+            <span>
+              <span className="block text-sm font-medium text-ink">In / Xuất PDF</span>
+              <span className="block text-xs text-muted">A4 chuẩn Cornell qua trình duyệt</span>
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MoreMenu({ onPrint, onDelete }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
   useDismiss(ref, open, () => setOpen(false))
@@ -83,6 +229,17 @@ function MoreMenu({ onDelete }) {
       <Button size="sm" variant="ghost" icon={MoreHorizontal} onClick={() => setOpen((o) => !o)} aria-label="Thao tác khác" aria-haspopup="menu" aria-expanded={open} />
       {open && (
         <div role="menu" className="absolute top-full right-0 z-40 mt-2 w-48 animate-slide-up rounded-xl border border-line bg-surface p-1.5 shadow-float">
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              onPrint()
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-ink hover:bg-paper"
+          >
+            <Printer className="size-4 text-muted" /> In / Xuất PDF
+          </button>
+          <div className="my-1 border-t border-line" />
           <button
             role="menuitem"
             onClick={() => {
@@ -215,6 +372,7 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
   const [proofread, setProofread] = useState(null) // { loading, result } khi hộp thoại soát lỗi đang mở
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [exporting, setExporting] = useState(null)
 
   const latest = useRef({})
   useLayoutEffect(() => {
@@ -380,6 +538,59 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
     }
   }
 
+  const handleExportDocx = async () => {
+    const isOffline = noteId.startsWith('offline_') || (typeof navigator !== 'undefined' && !navigator.onLine)
+    if (isOffline) {
+      toast.error('Xuất file Word (.docx) cần kết nối mạng. Bạn có thể xuất Text (.txt) hoặc In / Xuất PDF ngoại tuyến.')
+      return
+    }
+    setExporting('docx')
+    try {
+      await flush()
+      await api.exportNote(noteId, 'docx')
+      toast.success('Đã tải xuống file Word (.docx).')
+    } catch (err) {
+      toast.error(err.message || 'Lỗi xuất file Word.')
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const handleExportTxt = async () => {
+    const isOffline = noteId.startsWith('offline_') || (typeof navigator !== 'undefined' && !navigator.onLine)
+    setExporting('txt')
+    try {
+      if (isOffline) {
+        downloadClientNoteTxt({
+          title,
+          cues,
+          content_md: editor ? editor.getMarkdown() : (initialNote.content_md || ''),
+          summary,
+          ai_summary: aiSummary,
+          folder: initialNote.folder,
+          tags,
+          updated_at: updatedAt,
+        })
+        toast.success('Đã xuất file Text (.txt).')
+      } else {
+        await flush()
+        await api.exportNote(noteId, 'txt')
+        toast.success('Đã tải xuống file Text (.txt).')
+      }
+    } catch (err) {
+      toast.error(err.message || 'Lỗi xuất file Text.')
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const handlePrint = () => {
+    if (studyMode) setStudyMode(false)
+    requestAnimationFrame(() => {
+      window.print()
+    })
+  }
+
   // Đánh dấu các đoạn đang được neo: vạch dọc mảnh + nền nhạt (CSS động theo id — không sửa DOM của ProseMirror).
   const anchorCss = useMemo(() => {
     const ids = [...new Set(cues.filter((c) => c.anchor && c.text.trim()).map((c) => c.anchor))]
@@ -401,7 +612,7 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
     <div className="mx-auto max-w-7xl space-y-2 sm:space-y-4">
       <style>{anchorCss}</style>
       {/* Thanh trên: quay lại, trạng thái lưu, thao tác */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 no-print">
         <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={onBack} className="-ml-2">
           <span className="hidden sm:inline">Ghi chú</span>
         </Button>
@@ -436,6 +647,12 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
         >
           <span className="hidden sm:inline">Soát lỗi</span>
         </Button>
+        <NoteExportMenu
+          onExportDocx={handleExportDocx}
+          onExportTxt={handleExportTxt}
+          onPrint={handlePrint}
+          exporting={exporting}
+        />
         <NoteStylePicker
           style={style}
           onChange={(next) => {
@@ -443,11 +660,21 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
             markDirty('style', { immediate: true })
           }}
         />
-        <MoreMenu onDelete={() => setConfirmDelete(true)} />
+        <MoreMenu onPrint={handlePrint} onDelete={() => setConfirmDelete(true)} />
+      </div>
+
+      {/* Tiêu đề trang in (chỉ hiện khi in) */}
+      <div className="hidden print:block mb-4 space-y-1">
+        <h1 className="text-2xl font-bold text-ink">{title || 'Ghi chú không tên'}</h1>
+        <div className="text-xs text-muted flex flex-wrap gap-3">
+          {folderId && initialNote.folder?.name && <span>Thư mục: {initialNote.folder.name}</span>}
+          {tags.length > 0 && <span>Thẻ: {tags.map((t) => '#' + t.name).join(', ')}</span>}
+          <span>Lần sửa gần nhất: {formatDateTime(updatedAt)}</span>
+        </div>
       </div>
 
       {/* Tiêu đề + thư mục + tag */}
-      <div className="space-y-3">
+      <div className="space-y-3 no-print">
         <input
           value={title}
           onChange={(e) => {
@@ -480,7 +707,7 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
       </div>
 
       {/* Tab trên mobile (dưới lg): 3 phần Cornell xếp thành tab; từ lg hiện cùng lúc */}
-      <div className="flex rounded-xl border border-line bg-sunken/60 p-1 lg:hidden" role="tablist" aria-label="Phần của ghi chú">
+      <div className="flex rounded-xl border border-line bg-sunken/60 p-1 lg:hidden no-print" role="tablist" aria-label="Phần của ghi chú">
         {MOBILE_TABS.map((t) => (
           <button
             key={t.id}
@@ -565,6 +792,7 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
           } ${mobileTab === 'summary' ? 'flex flex-1' : 'hidden lg:flex'}`}
           aria-label="Tóm tắt"
         >
+          <h2 className="hidden print:block text-xs font-bold uppercase tracking-wider text-[var(--note-muted)] mb-1.5">Tóm tắt</h2>
           {/* 2 tab: tóm tắt người học tự viết và tóm tắt AI (cột dữ liệu riêng, không ghi đè nhau) */}
           <div className="mb-2 flex shrink-0" role="tablist" aria-label="Kiểu tóm tắt">
             {SUMMARY_TABS.map((t) => (

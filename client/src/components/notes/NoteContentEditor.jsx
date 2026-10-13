@@ -27,6 +27,8 @@ import {
   ListOrdered,
   ListRestart,
   ListStart,
+  Mic,
+  MicOff,
   Minus,
   PenLine,
   Pilcrow,
@@ -34,6 +36,7 @@ import {
   Redo2,
   Rows3,
   Sigma,
+  Square,
   SquareCode,
   Strikethrough,
   Table2,
@@ -43,6 +46,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { refreshNoteLibrary } from '../../hooks/useNoteLibrary'
+import { useQuickDictation } from '../../hooks/useQuickDictation'
 import { api } from '../../lib/api'
 import { BlockIdGuard } from '../../lib/blockIdGuard'
 import { ANCHOR_TYPES, blockIdAtSelection } from '../../lib/noteEditor'
@@ -72,7 +76,11 @@ function useImagesConfigured() {
   return value instanceof Promise ? null : value
 }
 
-function ToolButton({ icon: Icon, label, active, disabled, onClick }) {
+function ToolButton({ icon: Icon, label, active, variant, disabled, onClick }) {
+  const activeClass =
+    variant === 'rec'
+      ? 'bg-rec-soft text-rec animate-rec-pulse'
+      : 'bg-[var(--note-soft)] text-[var(--note-accent)]'
   return (
     <button
       type="button"
@@ -84,7 +92,7 @@ function ToolButton({ icon: Icon, label, active, disabled, onClick }) {
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={`grid size-9 shrink-0 place-items-center rounded-lg transition-colors disabled:opacity-35 ${
-        active ? 'bg-[var(--note-soft)] text-[var(--note-accent)]' : 'text-[var(--note-muted)] hover:bg-[var(--note-soft)] hover:text-[var(--note-fg)]'
+        active ? activeClass : 'text-[var(--note-muted)] hover:bg-[var(--note-soft)] hover:text-[var(--note-fg)]'
       }`}
     >
       <Icon className="size-[18px]" />
@@ -94,7 +102,14 @@ function ToolButton({ icon: Icon, label, active, disabled, onClick }) {
 
 const Divider = () => <span className="mx-1 h-5 w-px shrink-0 bg-[var(--note-line)]" aria-hidden="true" />
 
-function Toolbar({ editor, onImage, onMath, onDraw, onNoteLink, imagesDisabledReason }) {
+function formatDuration(ms) {
+  const totalSec = Math.floor(ms / 1000)
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function Toolbar({ editor, onImage, onMath, onDraw, onNoteLink, imagesDisabledReason, isDictating, onToggleDictate }) {
   const s = useEditorState({
     editor,
     selector: ({ editor: e }) => {
@@ -126,7 +141,7 @@ function Toolbar({ editor, onImage, onMath, onDraw, onNoteLink, imagesDisabledRe
   return (
     <>
       <div role="toolbar" aria-label="Định dạng nội dung" className="flex items-center gap-0.5 overflow-x-auto px-2 py-1.5 [scrollbar-width:none]">
-        <ToolButton icon={Undo2} label="Hoàn tác (Ctrl+Z)" disabled={!s.canUndo} onClick={run((c) => c.undo())} />
+        <ToolButton icon={Undo2} label="Hoạt tác (Ctrl+Z)" disabled={!s.canUndo} onClick={run((c) => c.undo())} />
         <ToolButton icon={Redo2} label="Làm lại (Ctrl+Shift+Z)" disabled={!s.canRedo} onClick={run((c) => c.redo())} />
         <Divider />
         <ToolButton icon={Pilcrow} label="Đoạn văn" active={s.p} onClick={run((c) => c.setParagraph())} />
@@ -157,6 +172,13 @@ function Toolbar({ editor, onImage, onMath, onDraw, onNoteLink, imagesDisabledRe
         <ToolButton icon={Sigma} label="Chèn công thức (LaTeX)" onClick={onMath} />
         <ToolButton icon={Link2} label="Liên kết tới ghi chú khác (hoặc gõ [[ )" onClick={onNoteLink} />
         <ToolButton icon={PenLine} label="Vẽ công thức bằng tay → LaTeX" onClick={onDraw} />
+        <ToolButton
+          icon={isDictating ? MicOff : Mic}
+          label={isDictating ? 'Đang ghi âm — bấm để dừng' : 'Ghi âm nhanh (nói để nhập nội dung)'}
+          active={isDictating}
+          variant="rec"
+          onClick={onToggleDictate}
+        />
         <Divider />
         <ToolButton icon={Quote} label="Trích dẫn" active={s.quote} onClick={run((c) => c.toggleBlockquote())} />
         <ToolButton icon={SquareCode} label="Khối code" active={s.codeBlock} onClick={run((c) => c.toggleCodeBlock())} />
@@ -300,6 +322,16 @@ export default function NoteContentEditor({ noteId, initialContent, editable = t
     if (editor && editor.isEditable !== editable) editor.setEditable(editable)
   }, [editor, editable])
 
+  const dictation = useQuickDictation(editor, {
+    onDirty: () => callbacks.current.onChange?.(editor),
+  })
+
+  useEffect(() => {
+    if (dictation.error) {
+      toast.error(dictation.error)
+    }
+  }, [dictation.error, toast])
+
   if (!editor) return null
 
   const submitMath = ({ latex, mode }) => {
@@ -328,6 +360,14 @@ export default function NoteContentEditor({ noteId, initialContent, editable = t
     ;(d.mode === 'inline' ? chain.deleteInlineMath({ pos: d.pos }) : chain.deleteBlockMath({ pos: d.pos })).run()
   }
 
+  const toggleDictation = () => {
+    if (dictation.isRecording) {
+      dictation.stop()
+    } else {
+      dictation.start()
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {editable && (
@@ -340,7 +380,36 @@ export default function NoteContentEditor({ noteId, initialContent, editable = t
             // Gõ hộ "[[" -> plugin gợi ý tự mở, không cần đường đi riêng cho nút này.
             onNoteLink={() => editor.chain().focus().insertContent('[[').run()}
             onDraw={() => setDrawOpen(true)}
+            isDictating={dictation.isRecording}
+            onToggleDictate={toggleDictation}
           />
+          {dictation.isRecording && (
+            <div className="flex items-center justify-between gap-3 border-t border-[var(--note-line)] bg-brand-50/75 px-3 py-2 text-xs text-ink sm:px-4 animate-fade-in">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="size-2.5 shrink-0 animate-rec-pulse rounded-full bg-rec" />
+                <span className="font-semibold text-ink">Đang nghe…</span>
+                <span className="font-mono text-muted tabular-nums">
+                  {formatDuration(dictation.elapsedMs)}
+                </span>
+                <span className="hidden truncate italic text-muted sm:inline max-w-md">
+                  {dictation.interimText ? `“${dictation.interimText}”` : 'Nói vào micro để nhập nội dung…'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={toggleDictation}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-rec px-2.5 py-1 text-xs font-semibold text-white hover:bg-rec-600 transition-colors shadow-sm"
+              >
+                <Square className="size-3 fill-current" />
+                Dừng
+              </button>
+            </div>
+          )}
+          {dictation.isRecording && dictation.interimText && (
+            <div className="block sm:hidden border-t border-dashed border-[var(--note-line)] bg-brand-50/50 px-3 py-1.5 text-xs italic text-muted truncate">
+              “{dictation.interimText}”
+            </div>
+          )}
         </div>
       )}
       <input

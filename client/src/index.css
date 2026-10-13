@@ -366,3 +366,117 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * In / Xuất PDF ghi chú Cornell (GĐ5)
+ * - Tự động ẩn header, thanh điều hướng, thanh công cụ, các nút tương tác
+ * - Tờ ghi chú .note-sheet giữ chuẩn cấu trúc 2 cột Cornell: Câu hỏi (28%) - Nội dung (72%) và Tóm tắt bên dưới
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 15mm 12mm 15mm 12mm;
+  }
+
+  header,
+  nav,
+  footer,
+  aside,
+  button,
+  .no-print,
+  [role='toolbar'],
+  [role='tablist'],
+  .toast-container,
+  [aria-haspopup='menu'] {
+    display: none !important;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #1d1b18 !important;
+    font-size: 11pt !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Khung ghi chú khi in: bỏ chiều cao cố định của màn hình (--fit-h), bung theo chiều dài nội dung */
+  .note-sheet {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: 1px solid #d0cbc0 !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #1d1b18 !important;
+  }
+
+  /* Lưới 2 cột Cornell cố định khi in */
+  .note-sheet > div:first-of-type {
+    display: grid !important;
+    grid-template-columns: 28% 72% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Cột câu hỏi bên trái */
+  .note-sheet section[aria-label="Câu hỏi / từ khoá"] {
+    display: block !important;
+    border-right: 1px solid #d0cbc0 !important;
+    overflow: visible !important;
+    padding: 12px 14px !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  /* Cột nội dung bên phải */
+  .note-sheet section[aria-label="Nội dung chi tiết"] {
+    display: block !important;
+    overflow: visible !important;
+    padding: 12px 18px !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  /* Phần tóm tắt bên dưới */
+  .note-sheet section[aria-label="Tóm tắt"] {
+    display: block !important;
+    border-top: 1px solid #d0cbc0 !important;
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    padding: 14px 18px !important;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .note-prose {
+    min-height: auto !important;
+    line-height: 1.6 !important;
+  }
+
+  .scroll-area {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  textarea {
+    resize: none !important;
+    border: none !important;
+    overflow: visible !important;
+    height: auto !important;
+    color: #1d1b18 !important;
+  }
+
+  h1, h2, h3 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+
+  img, table, [data-type='block-math'] {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}
+

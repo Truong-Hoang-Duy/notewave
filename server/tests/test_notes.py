@@ -238,3 +238,42 @@ def test_tags_crud(client, make_tag, make_note):
     assert client.get("/api/notes").json()["items"][0]["tags"] == []
     assert client.delete(f"/api/tags/{other['id']}").status_code == 204
     assert client.get("/api/tags").json() == []
+
+
+# ---- Export (GĐ5) ----
+
+
+def test_export_note(client, make_note, make_folder, make_tag):
+    folder = make_folder("Khoa học")
+    tag = make_tag("vật lý")
+    note = make_note(
+        title="Định luật Newton",
+        folder_id=folder["id"],
+        tag_ids=[tag["id"]],
+    )
+    client.patch(
+        f"/api/notes/{note['id']}",
+        json={
+            "cues": [{"id": "c1", "text": "Định luật 1 là gì?", "anchor": None}],
+            "content_md": "# Ba định luật\n\nNội dung chi tiết về các định luật.",
+            "summary": "Tóm tắt ngắn gọn của học sinh.",
+        },
+    )
+
+    # Xuất .txt
+    res_txt = client.get(f"/api/notes/{note['id']}/export?format=txt")
+    assert res_txt.status_code == 200
+    assert "text/plain" in res_txt.headers["content-type"]
+    text = res_txt.content.decode("utf-8")
+    assert "Định luật Newton" in text
+    assert "Khoa học" in text
+    assert "#vật lý" in text
+    assert "Định luật 1 là gì?" in text
+    assert "Ba định luật" in text
+    assert "Tóm tắt ngắn gọn của học sinh." in text
+
+    # Xuất .docx
+    res_docx = client.get(f"/api/notes/{note['id']}/export?format=docx")
+    assert res_docx.status_code == 200
+    assert "wordprocessingml" in res_docx.headers["content-type"]
+    assert len(res_docx.content) > 1000

@@ -181,6 +181,20 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   },
 
+  async exportNote(id, format) {
+    const response = await request(`/api/notes/${id}/export?format=${format}`, { raw: true })
+    const blob = await response.blob()
+    const filename = parseFilename(response.headers.get('Content-Disposition')) || `note.${format}`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  },
+
   /** Upload 1 file audio -> Soniox Async API (1 request = 1 phiên; tải nhiều file = nhiều request). */
   uploadAudio: (file, { groupId, title, ...options } = {}) =>
     uploadWithProgress('/api/upload-transcribe', { file, group_id: groupId, title }, options),

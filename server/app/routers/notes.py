@@ -1,5 +1,7 @@
 import logging
 from datetime import datetime
+from typing import Literal
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query, Response
@@ -21,6 +23,7 @@ from app.models.note import (
     ProofreadResult,
     content_hash,
 )
+from app.services.note_export import build_note_docx, build_note_txt
 from app.services.note_links import delete_links_of, get_links, sync_note_links
 from app.services.note_media import delete_note_images, purge_orphan_images, sync_note_images
 from app.services.note_proofread_agent import proofread_note
@@ -187,3 +190,24 @@ async def proofread(note_id: str, db: DbDep) -> ProofreadResult:
     if not note.content_md.strip():
         raise HTTPException(status_code=422, detail="Ghi chú chưa có nội dung để soát lỗi.")
     return await proofread_note(note.content_md)
+
+
+@router.get("/{note_id}/export")
+def export_note(
+    note_id: str,
+    db: DbDep,
+    format: Literal["txt", "docx"] = Query(default="txt"),
+) -> Response:
+    """Xuất ghi chú Cornell sang .txt hoặc .docx (GĐ5)."""
+    note = get_note_or_404(db, note_id)
+    read = read_note(db, note)
+    if format == "docx":
+        content = build_note_docx(read)
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    else:
+        content = build_note_txt(read)
+        media_type = "text/plain; charset=utf-8"
+    filename = f"{read.title}.{format}"
+    ascii_fallback = f"note-{read.id[:8]}.{format}"
+    disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+    return Response(content=content, media_type=media_type, headers={"Content-Disposition": disposition})

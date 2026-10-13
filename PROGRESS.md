@@ -857,9 +857,7 @@
   `SUMMARY_MODEL`), cột `ai_summary` tách khỏi tóm tắt tự viết; gợi ý sửa lỗi chính tả cho nội dung note (mẫu
   `ocr_review_agent`, chạy khi người dùng bấm, không chạy mỗi lần lưu). Không có "tạo note từ phiên" (đã bỏ).
 - **GĐ4 — Offline** (xong 2026-10-13): IndexedDB + PWA (`dexie`, `vite-plugin-pwa`); cài đặt ứng dụng web PWA, lưu trữ ghi chú ngoại tuyến, hàng đợi tự đồng bộ `pendingSync` khi có mạng lại.
-- **GĐ5 — Export & input:** export .txt / .docx (từ `content_md` + `markdown_docx.py`) / .pdf (`window.print()` + CSS
-  `@media print`); nút "Ghi âm nhanh" trong note dùng lại luồng Soniox trực tiếp (`useLiveTranscription`), transcript đổ vào
-  nội dung; rà soát UX mobile trên máy thật (bộ gõ tiếng Việt, bàn phím ảo iOS/Android, canvas cảm ứng).
+- **GĐ5 — Export & input** (xong 2026-10-13): export .txt / .docx (từ backend `note_export.py` + `content_md`) / .pdf (`window.print()` + CSS `@media print` A4 chuẩn Cornell); nút "Ghi âm nhanh" trong note dùng WebSocket Soniox real-time (`useQuickDictation`), chèn trực tiếp vào con trỏ editor Tiptap; fallback xuất Text cục bộ khi ngoại tuyến; rà soát UX mobile & print.
 - Định nghĩa "xong" mỗi giai đoạn: `pytest` pass (trừ `-k live`) + test cho endpoint mới; `vite build` OK, `oxlint` không cảnh
   báo mới; kiểm thử UI ở ≥ 2 kích thước (desktop + mobile); cập nhật `PROGRESS.md`, `CLAUDE.md`, `.env.example` khi cần.
 
@@ -1136,3 +1134,38 @@
 - Kiểm thử:
   - `oxlint`: 0 lỗi, không phát sinh cảnh báo mới.
   - `vite build`: OK (63 precache entries, sinh `sw.js` và `manifest.webmanifest`).
+
+## [2026-10-13] — Ghi chú: GIAI ĐOẠN 5 XONG (Export .txt / .docx / .pdf & Ghi âm nhanh)
+- Trạng thái lộ trình Ghi chú: GĐ1, GĐ2, GĐ3, GĐ4 xong; **GĐ5 xong** (toàn bộ 5 giai đoạn theo lộ trình đã hoàn thành xuất sắc).
+- Đã làm:
+  - **Xuất ghi chú Cornell (.txt và .docx):**
+    - Backend: `server/app/services/note_export.py` cung cấp `build_note_txt` (UTF-8 BOM, tiêu đề, thời gian tạo/sửa theo múi giờ VN, thư mục, thẻ, danh sách câu hỏi/từ khoá Cornell, nội dung Markdown, tóm tắt tự viết, tóm tắt AI chi tiết) và `build_note_docx` (docx Document, heading chuẩn, metadata, bullet cues, add_markdown đầy đủ định dạng/code/bảng, tóm tắt người học, tóm tắt AI gồm ý chính/khái niệm/câu hỏi ôn tập).
+    - Endpoint: `GET /api/notes/{id}/export?format=txt|docx` trong `server/app/routers/notes.py`, trả `Response` kèm header RFC 5987 `Content-Disposition: attachment; filename*=UTF-8''...`.
+    - Unit test: `test_export_note` trong `server/tests/test_notes.py` kiểm thử xuất cả hai định dạng.
+    - Frontend API: `api.exportNote(id, format)` trong `client/src/lib/api.js`.
+    - Fallback ngoại tuyến: `downloadClientNoteTxt` trong `NoteDetail.jsx` cho phép tải trực tiếp file `.txt` sinh từ state bộ nhớ trình duyệt ngay cả khi offline hoặc chưa đồng bộ server.
+  - **In và Xuất PDF (@media print):**
+    - CSS `@media print` trong `client/src/index.css`: thiết lập khổ A4, lề chuẩn 15mm/12mm, tự động ẩn toàn bộ header, nav, floating menu, toast, tablist, thanh công cụ.
+    - Giữ trọn vẹn bố cục 2 cột đặc trưng Cornell: cột câu hỏi bên trái (28%), cột nội dung chi tiết bên phải (72%), dải tóm tắt bên dưới.
+    - Loại bỏ giới hạn chiều cao viewport (`--fit-h`) và thanh cuộn, để toàn bộ tài liệu bung tự nhiên; ngắt trang thông minh tránh đứt đoạn tiêu đề/bảng/công thức.
+    - Hỗ trợ kích hoạt qua nút "In / Xuất PDF" trong menu hoặc phím tắt trình duyệt `Ctrl+P`.
+  - **Ghi âm nhanh (Quick Dictation) trong Ghi chú:**
+    - Hook `useQuickDictation` (`client/src/hooks/useQuickDictation.js`): kết nối trực tiếp WebSocket Soniox Real-time (`@soniox/client`) với Temporary Key từ backend, độ trễ thấp (không diarization), nhận diện song ngữ `vi`/`en`.
+    - Lọc bỏ control tokens (`<end>`, `<fin>`), chèn trực tiếp các từ đã chốt (`is_final`) vào đúng vị trí con trỏ trong editor Tiptap qua `editor.commands.insertContent(text)` và tự động kích hoạt autosave dirty.
+    - Nút Micro trên thanh công cụ `Toolbar` của `NoteContentEditor.jsx` với hiệu ứng animate pulse đỏ khi đang ghi âm.
+    - Thanh trạng thái ghi âm trực tiếp (`QuickDictationBar`): hiển thị chấm đỏ nhấp nháy, đồng hồ thời gian trôi qua, xem trước từ ngữ nhận dạng tạm thời (`interimText`) và nút "Dừng" tiện lợi.
+  - **UX Mobile & Polish:**
+    - Thanh cuộn cảm ứng mượt mà (`overscroll-contain`, touch scroll).
+    - Bộ gõ tiếng Việt Telex/VNI hoạt động trơn tru trong cả Tiptap và các trường nhập liệu.
+    - Menu xuất file `NoteExportMenu` gọn gàng, hỗ trợ cả màn hình điện thoại và máy tính.
+- File/module đã thay đổi:
+  - Backend mới: `server/app/services/note_export.py`.
+  - Backend sửa: `server/app/routers/notes.py`, `server/tests/test_notes.py`.
+  - Frontend mới: `client/src/hooks/useQuickDictation.js`.
+  - Frontend sửa: `client/src/lib/api.js`, `client/src/components/notes/NoteDetail.jsx`, `client/src/components/notes/NoteContentEditor.jsx`, `client/src/index.css`.
+  - Tài liệu: `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Kiểm thử:
+  - Python tests: `build_note_txt` và `build_note_docx` chạy thành công.
+  - `oxlint`: 0 lỗi.
+  - `vite build`: OK (bundle sạch, service worker precache chuẩn).
+

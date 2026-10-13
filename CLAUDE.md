@@ -103,6 +103,7 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 | `/api/groups/{id}` | PATCH/DELETE | Đổi tên nhóm / xoá nhóm (phiên trong nhóm chuyển về "chưa phân nhóm", không bị xoá) |
 | `/api/notes` | POST/GET | Tạo ghi chú Cornell (`{title?, folder_id?, tag_ids?}`) / liệt kê (`?q=` tìm trong tiêu đề+câu hỏi+nội dung+tóm tắt, `?folder_id=<id>\|none` (chỉ note nằm TRỰC TIẾP), `?tag_id=`, `?sort=` `updated_desc` (mặc định) \| `created_desc` \| `created_asc` \| `title_asc` \| `title_desc`, `limit`, `offset`) |
 | `/api/notes/{id}` | GET/PATCH/DELETE | Xem / cập nhật TỪNG PHẦN (autosave chỉ gửi field đã đổi: `title`, `folder_id` (null tường minh = ra gốc), `tag_ids` (thay toàn bộ), `cues`, `content_json`, `content_md`, `summary`, `style`) — last-write-wins, không kiểm tra phiên bản / xoá |
+| `/api/notes/{id}/export` | GET | Xuất ghi chú Cornell sang `.txt` hoặc `.docx` (query `?format=`) |
 | `/api/notes/{id}/images` | POST | Tải 1 ảnh (multipart `file`; PNG/JPEG/WebP/GIF theo magic bytes, ≤ `NOTE_IMAGE_MAX_MB`) lên Supabase Storage → `{id, url: "/api/note-images/<id>", ...}`; chưa có `SUPABASE_SECRET_KEY` → 503 |
 | `/api/note-images/{id}` | GET | URL ỔN ĐỊNH của ảnh trong note → 307 tới signed URL 1 giờ của bucket private (`Cache-Control: private, max-age=3000`) |
 | `/api/notes/formula-ocr` | POST | Ảnh công thức vẽ tay (multipart `image`, PNG/JPEG/WebP ≤ 5MB) → Mistral OCR (data URI, không qua Files API) → `{latex, raw_markdown, multiple}`; không tạo phiên |
