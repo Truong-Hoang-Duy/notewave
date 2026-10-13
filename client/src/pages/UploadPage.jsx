@@ -9,7 +9,6 @@ import { api } from '../lib/api'
 import { formatBytes, formatClock } from '../lib/format'
 
 const ACCEPTED_EXTENSIONS = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', 'webm', 'mp4', 'amr', 'aiff', 'aif', 'asf']
-const MAX_UPLOAD_MB = Number(import.meta.env.VITE_MAX_UPLOAD_MB) || 0
 const MAX_FILES = 20
 // Số file tải lên cùng lúc (mỗi file 1 request) — tránh nghẽn mạng/băng thông và RAM của Render free.
 const CONCURRENT_UPLOADS = 2
@@ -20,7 +19,6 @@ function validateFile(file) {
   const ext = file.name.split('.').pop()?.toLowerCase()
   if (!ext || !ACCEPTED_EXTENSIONS.includes(ext)) return `Định dạng “.${ext ?? '?'}” không được hỗ trợ (dùng ${ACCEPTED_EXTENSIONS.slice(0, 7).join(', ')}…).`
   if (file.size === 0) return 'File rỗng.'
-  if (MAX_UPLOAD_MB > 0 && file.size > MAX_UPLOAD_MB * 1024 * 1024) return `File lớn ${formatBytes(file.size)}, vượt giới hạn ${MAX_UPLOAD_MB} MB.`
   return null
 }
 
@@ -176,7 +174,7 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
         accept={`audio/*,video/mp4,video/webm,${ACCEPTED_EXTENSIONS.map((e) => `.${e}`).join(',')}`}
         validate={validateFile}
         maxFiles={Math.max(1, MAX_FILES - jobs.filter((j) => j.status === 'queued' || j.status === 'uploading').length)}
-        dropHint={`MP3, WAV, M4A, AAC, OGG, FLAC, WEBM… · ${MAX_UPLOAD_MB > 0 ? `mỗi file tối đa ${MAX_UPLOAD_MB} MB` : 'không giới hạn dung lượng'}`}
+        dropHint="MP3, WAV, M4A, AAC, OGG, FLAC, WEBM… · không giới hạn dung lượng"
         fileIcon={FileAudio}
         fileIconTone="bg-[#efedf9] text-[#4a44a8]"
       >
