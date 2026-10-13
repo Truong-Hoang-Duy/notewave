@@ -856,8 +856,7 @@
   tới note này"); tóm tắt AI bằng agent `NoteSummary` riêng (ý chính, khái niệm, câu hỏi ôn tập; dùng chung
   `SUMMARY_MODEL`), cột `ai_summary` tách khỏi tóm tắt tự viết; gợi ý sửa lỗi chính tả cho nội dung note (mẫu
   `ocr_review_agent`, chạy khi người dùng bấm, không chạy mỗi lần lưu). Không có "tạo note từ phiên" (đã bỏ).
-- **GĐ4 — Offline:** đồng bộ nhiều thiết bị đã BỎ theo quyết định người dùng; còn lại tuỳ chọn: IndexedDB + PWA (cần duyệt
-  `dexie`, `vite-plugin-pwa` trước khi làm).
+- **GĐ4 — Offline** (xong 2026-10-13): IndexedDB + PWA (`dexie`, `vite-plugin-pwa`); cài đặt ứng dụng web PWA, lưu trữ ghi chú ngoại tuyến, hàng đợi tự đồng bộ `pendingSync` khi có mạng lại.
 - **GĐ5 — Export & input:** export .txt / .docx (từ `content_md` + `markdown_docx.py`) / .pdf (`window.print()` + CSS
   `@media print`); nút "Ghi âm nhanh" trong note dùng lại luồng Soniox trực tiếp (`useLiveTranscription`), transcript đổ vào
   nội dung; rà soát UX mobile trên máy thật (bộ gõ tiếng Việt, bàn phím ảo iOS/Android, canvas cảm ứng).
@@ -1105,3 +1104,35 @@
   - Đề xuất sửa tiếng Việt do LLM sinh ra chưa chạy thử trên nhiều văn phong thật; nếu thấy sửa hụt/sửa thừa thì chỉnh
     `INSTRUCTIONS` trong `services/note_proofread_agent.py` rồi chạy lại kịch bản UI.
   - Tóm tắt AI chỉ lưu 1 bản (tạo lại là ghi đè), chưa có lịch sử.
+
+## [2026-10-13] — Ghi chú: GIAI ĐOẠN 4 XONG (Offline & PWA)
+- Trạng thái lộ trình Ghi chú: GĐ1, GĐ2, GĐ3 xong; **GĐ4 xong** (PWA cài đặt được, IndexedDB cache ghi chú, hàng đợi đồng bộ tự động khi có mạng).
+- Đã làm:
+  - **PWA (Progressive Web App):**
+    - Cấu hình `vite-plugin-pwa` trong `vite.config.js`: chế độ `registerType: 'autoUpdate'`, manifest `NoteWave — Ghi chú & Phụ đề thông minh`, màu thương hiệu `#2f6554`, nền `#f6f4ef`, hiển thị `standalone`, định hướng `portrait-primary`, `lang: 'vi'`.
+    - Sinh bộ icon chuẩn trong `client/public/`: `pwa-192x192.png`, `pwa-512x512.png`, `pwa-maskable-512x512.png` (safe zone 75%), `apple-touch-icon.png` (180x180), `favicon.svg`.
+    - Thẻ meta PWA trong `index.html` (`theme-color`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-title`).
+    - Caching Workbox: precache 63 static assets (3.78MB: HTML, JS, CSS, KaTeX woff/woff2, SVG, PNG), runtime caching cho Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`).
+    - Đăng ký service worker tự động bằng `registerSW({ immediate: true })` trong `main.jsx`.
+  - **Lưu trữ ngoại tuyến với IndexedDB (`dexie`):**
+    - `client/src/lib/offlineDb.js`: CSDL Dexie `notewave_offline_db` gồm 4 bảng (`notes`, `folders`, `tags`, `pendingSync`).
+    - Cache danh sách và chi tiết khi có mạng: `cacheNotes`, `cacheNote`, `cacheFolders`, `cacheTags`.
+    - Đọc và lọc ngoại tuyến: `getOfflineNotes` (lọc theo query, thư mục, tag, sắp xếp), `getOfflineNote`, `getOfflineFolders`, `getOfflineTags`.
+    - Sửa khi ngoại tuyến: `saveOfflineNotePatch` cập nhật tức thì bản sao trong IndexedDB và ghi hàng đợi `pendingSync` (tự động gộp patch nếu đã có lượt sửa trước đó).
+    - Tạo ghi chú ngoại tuyến: `createOfflineNote` sinh ID tạm `offline_<uuid>`, cho phép mở và soạn thảo bình thường khi không có mạng; ghi hàng đợi `pendingSync`.
+    - Xoá ngoại tuyến: `deleteOfflineNote` xoá khỏi IndexedDB và ghi nhận lệnh xoá hoặc huỷ lệnh tạo trong `pendingSync`.
+    - Cơ chế đồng bộ `syncPendingNotes`: tuần tự tạo trên server (lấy UUID thật, thay thế ID tạm trong DB/queue và cập nhật URL hash `#/notes/<realId>`), gửi PATCH, gửi DELETE; báo kết quả qua listener.
+  - **Giao diện & Trải nghiệm người dùng:**
+    - Hook `useNetworkStatus`: lắng nghe sự kiện `online`/`offline`, theo dõi số lượng mục chờ đồng bộ `pendingCount`, tự động kích hoạt `syncPendingNotes` khi có mạng lại.
+    - Thanh thông báo trạng thái ngoại tuyến / đang đồng bộ / còn thay đổi chờ đồng bộ (kèm nút "Đồng bộ ngay") dưới header trong `App.jsx`.
+    - Huy hiệu "Ngoại tuyến" / "Đang đồng bộ" tinh tế trên thanh điều hướng header.
+    - Cảnh báo "Đang hiển thị dữ liệu lưu trên thiết bị" trong `NotesPage.jsx` khi ngoại tuyến.
+    - Huy hiệu "Chờ đồng bộ" trên từng dòng ghi chú được tạo ngoại tuyến.
+    - Trạng thái lưu trong `NoteDetail.jsx` (`SaveStatus`): hiển thị "Đã lưu trên máy (ngoại tuyến)" khi mất mạng thay vì báo lỗi đỏ.
+- File/module đã thay đổi:
+  - Frontend mới: `client/src/lib/offlineDb.js`, `client/src/hooks/useNetworkStatus.js`, các file icon PWA PNG trong `client/public/`.
+  - Frontend sửa: `client/package.json` (thêm `dexie`, `vite-plugin-pwa`), `client/vite.config.js`, `client/index.html`, `client/src/main.jsx`, `client/src/App.jsx`, `client/src/hooks/useNoteLibrary.js`, `client/src/hooks/useNoteAutosave.js`, `client/src/pages/NotesPage.jsx`, `client/src/components/notes/NoteDetail.jsx`, `client/src/components/FileIngestPage.jsx`.
+  - Tài liệu: `CLAUDE.md`, `GEMINI.md`, `PROGRESS.md`.
+- Kiểm thử:
+  - `oxlint`: 0 lỗi, không phát sinh cảnh báo mới.
+  - `vite build`: OK (63 precache entries, sinh `sw.js` và `manifest.webmanifest`).

@@ -1,9 +1,11 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { api } from '../lib/api'
+import { cacheFolders, cacheTags, getOfflineFolders, getOfflineTags } from '../lib/offlineDb'
 
 /**
  * Kho thư mục + tag của Ghi chú, dùng chung toàn app (danh sách note, trang chi tiết, bộ chọn thư mục/tag)
  * — cùng mẫu với `useGroups`: tạo/đổi tên/xoá ở một nơi thì mọi nơi cập nhật theo.
+ * Có lưu cache IndexedDB để hoạt động trơn tru khi ngoại tuyến (GĐ4).
  */
 let state = { folders: [], tags: [], loaded: false, loading: false, error: null }
 const listeners = new Set()
@@ -18,8 +20,20 @@ export function refreshNoteLibrary() {
   if (inflight) return inflight
   setState({ loading: true, error: null })
   inflight = Promise.all([api.listNoteFolders(), api.listTags()])
-    .then(([folders, tags]) => setState({ folders, tags, loaded: true, loading: false }))
-    .catch((error) => setState({ error, loading: false }))
+    .then(([folders, tags]) => {
+      cacheFolders(folders)
+      cacheTags(tags)
+      setState({ folders, tags, loaded: true, loading: false })
+    })
+    .catch(async (error) => {
+      // Khi mất mạng hoặc API lỗi: đọc từ IndexedDB cache
+      const [cachedFolders, cachedTags] = await Promise.all([getOfflineFolders(), getOfflineTags()])
+      if (cachedFolders.length || cachedTags.length) {
+        setState({ folders: cachedFolders, tags: cachedTags, loaded: true, loading: false, error: null })
+      } else {
+        setState({ error, loading: false })
+      }
+    })
     .finally(() => {
       inflight = null
     })

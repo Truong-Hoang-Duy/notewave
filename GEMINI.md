@@ -32,7 +32,7 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
   `extension-mathematics` (GĐ2); `katex` + `remark-math` + `rehype-katex` (render công thức, dùng chung cho Ghi chú và
   `OcrDocumentView`). **`katex` giữ ở `^0.16`**: `rehype-katex`/`micromark-extension-math` chỉ nhận 0.16 — cài 0.17+ sẽ
   có 2 bản KaTeX trong bundle; `vite.config.js` tách KaTeX thành chunk riêng (`codeSplitting.groups`) để 2 chunk lazy
-  dùng chung. Chưa duyệt: `dexie`, `vite-plugin-pwa`.
+  dùng chung. Đã duyệt thêm ở GĐ4: `dexie` (IndexedDB), `vite-plugin-pwa` (PWA & service worker).
   Điều hướng dùng hash router tự viết (`#/live`, `#/upload`, `#/scan`, `#/notes`, `#/notes/<id>`, `#/history/<id>`),
   không dùng react-router.
 - **Backend:** Python, FastAPI (web server) + PydanticAI (agent tóm tắt / rà soát OCR bằng LLM). Thư mục `/server`.

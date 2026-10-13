@@ -1,6 +1,7 @@
 import {
   ArrowDownUp,
   ChevronRight,
+  CloudOff,
   Folder,
   FolderInput,
   FolderOpen,
@@ -27,6 +28,7 @@ import { Button, Card, EmptyState, ErrorState } from '../components/ui'
 import { buildFolderTree, folderPath, noteLibraryActions, useNoteLibrary } from '../hooks/useNoteLibrary'
 import { api } from '../lib/api'
 import { formatDateTime } from '../lib/format'
+import { cacheNotes, createOfflineNote, getOfflineNotes } from '../lib/offlineDb'
 
 const SORT_OPTIONS = [
   ['updated_desc', 'Sửa gần đây nhất'],
@@ -224,6 +226,11 @@ function NoteRow({ item, folders, onOpen }) {
                 {item.cue_count} câu hỏi
               </span>
             )}
+            {item._offline && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-warn-soft px-2 py-0.5 text-[11px] font-medium text-warn">
+                <CloudOff className="size-3" /> Chờ đồng bộ
+              </span>
+            )}
           </div>
           {item.preview && <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-ink-soft">{item.preview}</p>}
           {item.tags.length > 0 && (
@@ -275,6 +282,7 @@ export default function NotesPage({ onOpen }) {
   const [creating, setCreating] = useState(false)
   const [dialog, setDialog] = useState(null) // { kind, folder?, tag? }
   const [deleting, setDeleting] = useState(false)
+  const [isOfflineData, setIsOfflineData] = useState(false)
   const debouncedQuery = useDebounced(query.trim())
 
   const setFolderId = (v) => {
@@ -298,16 +306,37 @@ export default function NotesPage({ onOpen }) {
     const controller = new AbortController()
     setLoading(true)
     setError(null)
+    setIsOfflineData(false)
+
+    // Nếu trình duyệt đang ngoại tuyến, nạp ngay từ IndexedDB
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      getOfflineNotes({ q: debouncedQuery, folderId, tagId, sort }).then((offlineRes) => {
+        setData(offlineRes)
+        setIsOfflineData(true)
+        setLoading(false)
+      })
+      return () => controller.abort()
+    }
+
     api
       .listNotes({ q: debouncedQuery, folderId, tagId, sort, signal: controller.signal })
       .then((res) => {
         setData(res)
         setLoading(false)
+        cacheNotes(res.items)
       })
-      .catch((err) => {
+      .catch(async (err) => {
         if (err?.name === 'AbortError') return
-        setError(err)
-        setLoading(false)
+        // Khi mất mạng hoặc API lỗi: đọc từ IndexedDB
+        const offlineRes = await getOfflineNotes({ q: debouncedQuery, folderId, tagId, sort })
+        if (offlineRes.items.length > 0 || !navigator.onLine) {
+          setData(offlineRes)
+          setIsOfflineData(true)
+          setLoading(false)
+        } else {
+          setError(err)
+          setLoading(false)
+        }
       })
     return () => controller.abort()
   }, [debouncedQuery, folderId, tagId, sort, reloadKey])
@@ -338,12 +367,34 @@ export default function NotesPage({ onOpen }) {
   const createNote = async () => {
     setCreating(true)
     try {
-      const note = await api.createNote({
-        folder_id: currentFolder ? currentFolder.id : null,
-        tag_ids: currentTag ? [currentTag.id] : [],
-      })
-      if (currentFolder || currentTag) noteLibraryActions.refresh()
-      onOpen(note.id)
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        const note = await createOfflineNote({
+          folder_id: currentFolder ? currentFolder.id : null,
+          tag_ids: currentTag ? [currentTag.id] : [],
+        })
+        if (currentFolder || currentTag) noteLibraryActions.refresh()
+        toast.info('Đã tạo ghi chú ngoại tuyến (trên thiết bị). Sẽ tự động tải lên khi có mạng.')
+        onOpen(note.id)
+        return
+      }
+
+      try {
+        const note = await api.createNote({
+          folder_id: currentFolder ? currentFolder.id : null,
+          tag_ids: currentTag ? [currentTag.id] : [],
+        })
+        if (currentFolder || currentTag) noteLibraryActions.refresh()
+        onOpen(note.id)
+      } catch {
+        // Fallback sang tạo offline nếu API gặp sự cố mạng
+        const note = await createOfflineNote({
+          folder_id: currentFolder ? currentFolder.id : null,
+          tag_ids: currentTag ? [currentTag.id] : [],
+        })
+        if (currentFolder || currentTag) noteLibraryActions.refresh()
+        toast.info('Đã tạo ghi chú ngoại tuyến (trên thiết bị). Sẽ tự động tải lên khi có mạng.')
+        onOpen(note.id)
+      }
     } catch (err) {
       toast.error(err.message)
       setCreating(false)
@@ -536,6 +587,13 @@ export default function NotesPage({ onOpen }) {
             </div>
           )}
         </div>
+
+        {isOfflineData && (
+          <div className="flex items-center gap-2.5 rounded-xl border border-line bg-sunken/70 px-4 py-2.5 text-[13px] text-muted">
+            <CloudOff className="size-4 shrink-0 text-warn" />
+            <span>Đang hiển thị danh sách ghi chú lưu trên thiết bị (ngoại tuyến). Các thay đổi sẽ tự động tải lên khi có mạng lại.</span>
+          </div>
+        )}
 
         <Card className="overflow-hidden">
           {error ? (

@@ -20,6 +20,7 @@ import { api } from '../../lib/api'
 import { formatDateTime } from '../../lib/format'
 import { noteStyleVars } from '../../lib/noteStyles'
 import { applyProofreadSuggestions } from '../../lib/noteProofread'
+import { cacheNote, deleteOfflineNote, getOfflineNote } from '../../lib/offlineDb'
 import ConfirmDialog from '../ConfirmDialog'
 import { useToast } from '../Toast'
 import { Button, ErrorState, Spinner } from '../ui'
@@ -46,7 +47,7 @@ const MOBILE_TABS = [
   { id: 'summary', label: 'Tóm tắt', icon: NotebookText },
 ]
 
-function SaveStatus({ status, error, updatedAt }) {
+function SaveStatus({ status, error, updatedAt, isOffline }) {
   const base = 'inline-flex items-center gap-1.5 text-[12.5px] whitespace-nowrap'
   if (status === 'saving' || status === 'pending')
     return (
@@ -58,6 +59,12 @@ function SaveStatus({ status, error, updatedAt }) {
     return (
       <span className={`${base} text-warn`} role="status" title={error?.message}>
         <CloudOff className="size-3.5" /> Chưa lưu được — đã giữ bản nháp trên máy, đang thử lại
+      </span>
+    )
+  if (isOffline)
+    return (
+      <span className={`${base} text-muted`} role="status" title="Đã lưu vào bộ nhớ thiết bị, sẽ đồng bộ khi có mạng">
+        <CloudOff className="size-3.5 text-warn" /> Đã lưu trên máy (ngoại tuyến)
       </span>
     )
   return (
@@ -120,20 +127,44 @@ export default function NoteDetail({ noteId, onBack, onDeleted }) {
     // Component được mount lại theo `key={noteId}` (App.jsx) nên không cần reset state ở đây.
     const controller = new AbortController()
     const draft = readNoteDraft(noteId)
+
+    const applyDraft = (loaded, allTags) => {
+      if (!draft || draft.saved_at <= Date.parse(loaded.updated_at)) {
+        if (draft) clearNoteDraft(noteId)
+        return loaded
+      }
+      const { tag_ids: tagIds, folder_id: folderId, ...fields } = draft.patch
+      const restored = { ...loaded, ...fields, restoredDraft: draft.patch }
+      if (folderId !== undefined) restored.folder = folderId ? { id: folderId, name: '' } : null
+      if (tagIds && allTags) restored.tags = allTags.filter((t) => tagIds.includes(t.id)).map(({ id, name }) => ({ id, name }))
+      return restored
+    }
+
+    if (noteId.startsWith('offline_') || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+      getOfflineNote(noteId).then((cached) => {
+        if (cached) {
+          setNote(applyDraft(cached, null))
+        } else {
+          setLoadError(new Error('Ghi chú chưa được tải vào bộ nhớ tạm trên máy.'))
+        }
+      })
+      return () => controller.abort()
+    }
+
     Promise.all([api.getNote(noteId, { signal: controller.signal }), draft?.patch.tag_ids ? api.listTags() : null])
       .then(([loaded, allTags]) => {
-        // Còn bản nháp chưa lên máy chủ và mới hơn bản trên máy chủ -> áp vào rồi lưu lại.
-        if (!draft || draft.saved_at <= Date.parse(loaded.updated_at)) {
-          if (draft) clearNoteDraft(noteId)
-          return setNote(loaded)
-        }
-        const { tag_ids: tagIds, folder_id: folderId, ...fields } = draft.patch
-        const restored = { ...loaded, ...fields, restoredDraft: draft.patch }
-        if (folderId !== undefined) restored.folder = folderId ? { id: folderId, name: '' } : null
-        if (tagIds && allTags) restored.tags = allTags.filter((t) => tagIds.includes(t.id)).map(({ id, name }) => ({ id, name }))
-        setNote(restored)
+        cacheNote(loaded)
+        setNote(applyDraft(loaded, allTags))
       })
-      .catch((err) => err?.name !== 'AbortError' && setLoadError(err))
+      .catch(async (err) => {
+        if (err?.name === 'AbortError') return
+        const cached = await getOfflineNote(noteId)
+        if (cached) {
+          setNote(applyDraft(cached, null))
+        } else {
+          setLoadError(err)
+        }
+      })
     return () => controller.abort()
   }, [noteId, reloadKey])
 
@@ -333,7 +364,12 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
     setDeleting(true)
     try {
       cancel()
-      await api.deleteNote(noteId)
+      if (noteId.startsWith('offline_') || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+        await deleteOfflineNote(noteId)
+      } else {
+        await api.deleteNote(noteId)
+        await deleteOfflineNote(noteId).catch(() => {})
+      }
       refreshNoteLibrary()
       toast.success('Đã xoá ghi chú.')
       onDeleted()
@@ -370,7 +406,12 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
           <span className="hidden sm:inline">Ghi chú</span>
         </Button>
         <div className="min-w-0 flex-1 truncate">
-          <SaveStatus status={status} error={error} updatedAt={updatedAt} />
+          <SaveStatus
+            status={status}
+            error={error}
+            updatedAt={updatedAt}
+            isOffline={noteId.startsWith('offline_') || (typeof navigator !== 'undefined' && !navigator.onLine)}
+          />
         </div>
         <Button
           size="sm"

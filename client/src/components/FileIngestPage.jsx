@@ -7,13 +7,6 @@ import ProcessingCard from './ProcessingCard'
 import SessionDetail from './SessionDetail'
 import { Button, Card, ErrorState, InlineAlert } from './ui'
 
-function readActive(key) {
-  try {
-    return JSON.parse(localStorage.getItem(key))
-  } catch {
-    return null
-  }
-}
 function writeActive(key, value) {
   try {
     if (value) localStorage.setItem(key, JSON.stringify(value))

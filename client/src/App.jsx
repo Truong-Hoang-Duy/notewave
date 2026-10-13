@@ -1,7 +1,8 @@
-import { FileAudio, History, Mic, NotebookPen, ScanText, ServerCog } from 'lucide-react'
+import { CloudOff, FileAudio, History, Mic, NotebookPen, RefreshCw, ScanText, ServerCog } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import SessionDetail from './components/SessionDetail'
 import { Spinner } from './components/ui'
+import { useNetworkStatus } from './hooks/useNetworkStatus'
 import { api, subscribeSlowRequests } from './lib/api'
 import HistoryPage from './pages/HistoryPage'
 import LivePage from './pages/LivePage'
@@ -67,6 +68,7 @@ export default function App() {
   const [route, navigate] = useHashRoute()
   const [recording, setRecording] = useState(false)
   const [serverSlow, setServerSlow] = useState(false)
+  const { isOnline, isSyncing, pendingCount, triggerSync } = useNetworkStatus()
 
   useEffect(() => {
     // Đánh thức backend (Render free ngủ sau 15 phút) ngay khi mở app và ping định kỳ giữ ấm khi tab mở.
@@ -112,14 +114,68 @@ export default function App() {
               )
             })}
           </nav>
-          {recording && route.tab !== 'live' && (
-            <a href="#/live" className="flex items-center gap-2 rounded-full bg-rec-soft px-3 py-1.5 text-xs font-semibold text-rec md:hidden">
-              <span className="size-2 animate-rec-pulse rounded-full bg-rec" />
-              Đang ghi
-            </a>
-          )}
+          <div className="flex items-center gap-2.5">
+            {!isOnline && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-3 py-1.5 text-xs font-semibold text-warn">
+                <CloudOff className="size-3.5" />
+                <span className="hidden sm:inline">Ngoại tuyến</span>
+              </span>
+            )}
+            {isOnline && isSyncing && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700">
+                <RefreshCw className="size-3.5 animate-spin" />
+                <span className="hidden sm:inline">Đang đồng bộ</span>
+              </span>
+            )}
+            {recording && route.tab !== 'live' && (
+              <a href="#/live" className="flex items-center gap-2 rounded-full bg-rec-soft px-3 py-1.5 text-xs font-semibold text-rec">
+                <span className="size-2 animate-rec-pulse rounded-full bg-rec" />
+                Đang ghi
+              </a>
+            )}
+          </div>
         </div>
       </header>
+
+      {!isOnline && (
+        <div role="status" className="animate-fade-in border-b border-[#f0dcb8] bg-warn-soft">
+          <div className="mx-auto flex max-w-[96rem] items-center justify-between gap-3 px-4 py-2 text-[13px] text-[#7a4a0c] sm:px-6 lg:px-8">
+            <div className="flex items-center gap-2">
+              <CloudOff className="size-4 shrink-0 text-warn" />
+              <span>Chế độ ngoại tuyến: Bạn vẫn có thể xem, tạo và chỉnh sửa ghi chú. Dữ liệu sẽ tự động đồng bộ khi có mạng.</span>
+            </div>
+            {pendingCount > 0 && (
+              <span className="shrink-0 font-medium tabular-nums text-warn">
+                {pendingCount} thay đổi chờ đồng bộ
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isOnline && isSyncing && (
+        <div role="status" className="animate-fade-in border-b border-brand-100 bg-brand-50">
+          <div className="mx-auto flex max-w-[96rem] items-center gap-2.5 px-4 py-2 text-[13px] text-brand-700 sm:px-6 lg:px-8">
+            <RefreshCw className="size-3.5 shrink-0 animate-spin" />
+            <span>Đang đồng bộ dữ liệu ghi chú lên máy chủ…</span>
+          </div>
+        </div>
+      )}
+
+      {isOnline && !isSyncing && pendingCount > 0 && (
+        <div role="status" className="animate-fade-in border-b border-line bg-paper">
+          <div className="mx-auto flex max-w-[96rem] items-center justify-between gap-2.5 px-4 py-2 text-[13px] text-ink-soft sm:px-6 lg:px-8">
+            <span className="tabular-nums">Có {pendingCount} thay đổi ghi chú chưa tải lên máy chủ.</span>
+            <button
+              type="button"
+              onClick={triggerSync}
+              className="cursor-pointer font-medium text-brand-600 hover:text-brand-700 underline"
+            >
+              Đồng bộ ngay
+            </button>
+          </div>
+        </div>
+      )}
 
       {serverSlow && (
         <div role="status" className="animate-fade-in border-b border-[#f0dcb8] bg-warn-soft">

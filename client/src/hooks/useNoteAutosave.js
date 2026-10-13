@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import { cacheNote, saveOfflineNotePatch } from '../lib/offlineDb'
 
 /**
  * Tự lưu ghi chú (không có nút "Lưu"):
@@ -7,9 +8,8 @@ import { api } from '../lib/api'
  *   `markDirty(field, { immediate: true })` cho thay đổi rời rạc (tag, thư mục, giao diện) -> lưu ngay.
  * - Chỉ gửi field đã đổi (PATCH từng phần). `collect(fields)` do component cung cấp, đọc giá trị MỚI NHẤT lúc gửi
  *   (nội dung editor chỉ được serialize lúc này, không phải mỗi phím gõ).
- * - Bản nháp cục bộ: trước mỗi lần gửi, patch được ghi vào localStorage; chỉ xoá khi máy chủ nhận xong. Lưu lỗi
- *   (Render đang khởi động lại, mất mạng) -> giữ nháp, tự thử lại với độ trễ tăng dần và ngay khi có mạng trở lại.
- *   Mở lại note mà còn nháp mới hơn bản trên máy chủ -> `readNoteDraft` để khôi phục.
+ * - Bản nháp cục bộ & Offline (GĐ4): trước mỗi lần gửi, patch được ghi vào localStorage & IndexedDB; khi ngoại tuyến
+ *   (hoặc note tạo offline), lưu vào IndexedDB và xếp hàng pendingSync để tự đồng bộ khi có mạng.
  * - Không kiểm tra phiên bản (last-write-wins, quyết định 2026-09-18).
  */
 const DRAFT_PREFIX = 'notewave:note-draft:'
@@ -94,10 +94,19 @@ export function useNoteAutosave(noteId, collect, { delay = 1200, maxWait = 8000,
     if (!dirty.current.size && !failed.current) return
     const patch = takePatch()
     writeNoteDraft(noteId, patch)
+    // Lưu ngay vào IndexedDB để cache cục bộ luôn cập nhật
+    saveOfflineNotePatch(noteId, patch).catch(() => {})
     inflight.current = true
     setStatus('saving')
     try {
-      const saved = await api.updateNote(noteId, patch)
+      let saved
+      if (noteId.startsWith('offline_')) {
+        // Ghi chú tạo offline: đã lưu vào IndexedDB và pendingSync, chưa có ID máy chủ
+        saved = { id: noteId, ...patch, updated_at: new Date().toISOString() }
+      } else {
+        saved = await api.updateNote(noteId, patch)
+        cacheNote(saved)
+      }
       retryCount.current = 0
       setError(null)
       if (!dirty.current.size) clearNoteDraft(noteId)
@@ -107,6 +116,11 @@ export function useNoteAutosave(noteId, collect, { delay = 1200, maxWait = 8000,
       if (disabled.current) return
       failed.current = patch
       setError(err)
+      // Nếu ngoại tuyến: dữ liệu đã nằm an toàn trong IndexedDB + pendingSync, không báo lỗi đỏ dồn dập
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setStatus(dirty.current.size ? 'pending' : 'saved')
+        return
+      }
       setStatus('error')
       if (err?.status === 404 || err?.status === 422) return // note đã bị xoá / dữ liệu sai: thử lại vô ích
       const wait = RETRY_DELAYS[Math.min(retryCount.current, RETRY_DELAYS.length - 1)]
@@ -159,8 +173,11 @@ export function useNoteAutosave(noteId, collect, { delay = 1200, maxWait = 8000,
       if (disabled.current || (!dirty.current.size && !failed.current)) return
       const patch = takePatch()
       writeNoteDraft(noteId, patch)
+      saveOfflineNotePatch(noteId, patch).catch(() => {})
       const body = JSON.stringify(patch)
-      if (body.length < KEEPALIVE_LIMIT) api.updateNote(noteId, patch, { keepalive: true }).catch(() => {})
+      if (body.length < KEEPALIVE_LIMIT && !noteId.startsWith('offline_')) {
+        api.updateNote(noteId, patch, { keepalive: true }).catch(() => {})
+      }
     }
     window.addEventListener('online', onOnline)
     document.addEventListener('visibilitychange', onHidden)
