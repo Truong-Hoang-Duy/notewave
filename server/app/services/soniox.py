@@ -58,7 +58,7 @@ class SonioxService:
             "POST",
             "/v1/files",
             files={"file": (filename, fileobj, content_type or "application/octet-stream")},
-            timeout=httpx.Timeout(30.0, write=600.0, read=120.0),
+            timeout=httpx.Timeout(connect=60.0, read=300.0, write=None, pool=60.0),
         )
         return response.json()["id"]
 

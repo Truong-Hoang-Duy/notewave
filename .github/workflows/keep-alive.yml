@@ -1,0 +1,25 @@
+name: Keep-Alive Backend
+
+on:
+  schedule:
+    # Chạy mỗi 10 phút để giữ Render free không bị spin down (Render ngủ sau 15 phút không có request)
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Backend Health Endpoint
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL || vars.BACKEND_URL }}
+        run: |
+          URL="${BACKEND_URL:-https://notewave-api.onrender.com}"
+          # Bỏ dấu / ở cuối nếu có, rồi nối với /api/health
+          URL="${URL%/}"
+          if [[ "$URL" != *"/api/health" ]]; then
+            URL="$URL/api/health"
+          fi
+          echo "Sending keep-alive ping to: $URL"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 60 "$URL" || echo "failed")
+          echo "Response HTTP status: $STATUS"

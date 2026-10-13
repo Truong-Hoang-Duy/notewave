@@ -69,9 +69,19 @@ export default function App() {
   const [serverSlow, setServerSlow] = useState(false)
 
   useEffect(() => {
-    // Đánh thức backend (Render free ngủ sau 15 phút) ngay khi mở app.
+    // Đánh thức backend (Render free ngủ sau 15 phút) ngay khi mở app và ping định kỳ giữ ấm khi tab mở.
     api.health().catch(() => {})
-    return subscribeSlowRequests(setServerSlow)
+    const keepAliveTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        api.health().catch(() => {})
+      }
+    }, 5 * 60 * 1000)
+
+    const unsubscribe = subscribeSlowRequests(setServerSlow)
+    return () => {
+      clearInterval(keepAliveTimer)
+      unsubscribe()
+    }
   }, [])
 
   const openSession = useCallback((id) => navigate(`history/${id}`), [navigate])

@@ -246,7 +246,7 @@ MISTRAL_API_KEY=         # Mistral OCR cho "Quét tài liệu"; trống -> POST 
 OCR_MODEL=               # mặc định mistral-ocr-latest
 PUBLIC_BASE_URL=         # URL public của backend; có giá trị -> đăng ký webhook Soniox
 SONIOX_WEBHOOK_SECRET=   # Soniox gửi "Authorization: Bearer <secret>" khi gọi webhook
-MAX_UPLOAD_MB=           # mặc định 100 (file ghi âm; file OCR cố định theo giới hạn Mistral: 50MB / 1000 trang)
+MAX_UPLOAD_MB=           # mặc định 0 (không giới hạn; đặt > 0 nếu muốn giới hạn dung lượng file ghi âm)
 SUPABASE_SECRET_KEY=     # Supabase Storage cho ảnh trong Ghi chú (sb_secret_... / service_role) — CHỈ backend; trống -> tắt chèn ảnh
 SUPABASE_URL=            # tuỳ chọn, trống = suy ra https://<ref>.supabase.co từ user "postgres.<ref>" trong DATABASE_URL
 NOTE_ASSETS_BUCKET=      # mặc định note-assets (private, backend tự tạo)
@@ -256,7 +256,7 @@ Frontend (`client/.env`, trên Vercel khai báo trong Project Settings):
 ```
 VITE_API_BASE_URL=       # để trống khi dev (Vite proxy /api -> localhost:8000)
 VITE_SONIOX_RT_MODEL=    # mặc định stt-rt-v5
-VITE_MAX_UPLOAD_MB=      # mặc định 100
+VITE_MAX_UPLOAD_MB=      # mặc định 0 (0 = không giới hạn dung lượng)
 ```
 Cách lấy `DATABASE_URL` (local và Render dùng cùng giá trị):
 - Supabase Dashboard → nút **Connect** (hoặc Project Settings → Database → Connection string) →

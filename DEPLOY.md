@@ -129,7 +129,7 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
    | `PUBLIC_BASE_URL` | `https://notewave-api.onrender.com` — sẽ kiểm tra lại ở bước 3.7 |
 
    Các biến còn lại đã có sẵn trong `render.yaml`: `PYTHON_VERSION=3.12.8`, `SUMMARY_MODEL=openai:gpt-5.6-luna`,
-   `OCR_MODEL=mistral-ocr-latest`, `NOTE_ASSETS_BUCKET=note-assets`, `MAX_UPLOAD_MB=100`, `SONIOX_WEBHOOK_SECRET` (Render
+   `OCR_MODEL=mistral-ocr-latest`, `NOTE_ASSETS_BUCKET=note-assets`, `MAX_UPLOAD_MB=0` (0 = không giới hạn), `SONIOX_WEBHOOK_SECRET` (Render
    tự sinh chuỗi ngẫu nhiên). `SUPABASE_URL` không cần khai báo: backend tự suy ra từ project-ref trong `DATABASE_URL`.
    Blueprint đã tạo từ trước: tab **Environment** → **Add Environment Variable** `MISTRAL_API_KEY`, `SUPABASE_SECRET_KEY`
    (và `OCR_MODEL`, `NOTE_ASSETS_BUCKET` nếu muốn) → **Save, rebuild, and deploy** (Render không tự thêm biến mới từ
@@ -171,7 +171,7 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
      | Name | Value |
      |---|---|
      | `VITE_API_BASE_URL` | URL Render ở bước 3.7, **không có `/` cuối**, vd `https://notewave-api.onrender.com` |
-     | `VITE_MAX_UPLOAD_MB` | `100` |
+     | `VITE_MAX_UPLOAD_MB` | `0` (0 hoặc để trống = không giới hạn dung lượng) |
      | `VITE_SONIOX_RT_MODEL` | `stt-rt-v5` (có thể bỏ qua — đây là mặc định) |
 3. Bấm **Deploy**, chờ ~1 phút. Lấy domain chính thức ở **Project → Domains** (vd `https://notewave.vercel.app`).
 
@@ -250,7 +250,7 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | Backend đang chạy bỗng lỗi kết nối DB sau nhiều ngày | Supabase free **tạm dừng project** sau ~1 tuần không hoạt động | Supabase Dashboard → **Restore project**, chờ vài phút |
 | Trình duyệt Console: `blocked by CORS policy` | `ALLOWED_ORIGINS` không khớp domain đang mở (thừa `/`, thiếu `https://`, link preview) | Sửa `ALLOWED_ORIGINS` (mục 5) |
 | Frontend báo "Không kết nối được tới máy chủ", Network tab thấy request tới `notewave.vercel.app/api/...` | Thiếu/sai `VITE_API_BASE_URL` | Sửa biến trên Vercel rồi **Redeploy** |
-| Lần mở đầu tiên chờ lâu 30–60 giây | Render free ngủ sau 15 phút không có request | Bình thường. Muốn tránh: nâng gói Render hoặc dùng dịch vụ ping định kỳ `/api/health` |
+| Lần mở đầu tiên chờ lâu 30–60 giây | Render free ngủ sau 15 phút không có request | Dùng dịch vụ ping định kỳ (mỗi 10 phút) vào `https://<backend>/api/health` qua [cron-job.org](https://cron-job.org), UptimeRobot, hoặc GitHub Actions workflow (xem chi tiết bên dưới). Khi tab NoteWave mở, frontend cũng tự heartbeat mỗi 5 phút |
 | Bấm ghi âm báo lỗi khoá tạm thời / `503` ở `/api/temporary-key` | Thiếu/sai `SONIOX_API_KEY` | Kiểm tra `/api/health` → `soniox_configured` phải `true` |
 | Tóm tắt báo "Không tạo được bản tóm tắt" (502) | Sai `OPENAI_API_KEY`, hết credit, tài khoản chưa được dùng model, hoặc sai `SUMMARY_MODEL` | Xem Render Logs dòng `Tóm tắt thất bại` để biết lỗi cụ thể |
 | Tóm tắt chạy lâu (transcript rất dài) | `gpt-5.6-luna` mặc định bật reasoning | Chấp nhận được (~10 giây/buổi họp ngắn). Cần nhanh hơn: thêm biến `SUMMARY_REASONING_EFFORT=low` trên Render (đổi lại chất lượng việc cần làm kém hơn) |
@@ -259,7 +259,7 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | Quét tài liệu thành công nhưng có dòng "Chưa rà soát được từ tiếng Anh" | Bước LLM (dùng `SUMMARY_MODEL` + `OPENAI_API_KEY`) lỗi: hết credit, sai key/model | Như dòng lỗi tóm tắt ở trên; nội dung OCR vẫn được giữ, người dùng tự sửa bằng "Chỉnh sửa nội dung" |
 | Quét tài liệu: phiên chuyển "Lỗi" với "bị gián đoạn do máy chủ khởi động lại" | Render restart/deploy lại khi job OCR nền đang chạy (job chạy trong process backend) | Tải tài liệu lên lại; tránh deploy khi đang có người quét tài liệu |
 | Upload xong nhưng Render Logs không có `POST /api/webhooks/soniox` | `PUBLIC_BASE_URL` sai (không trùng URL Render) | Sửa `PUBLIC_BASE_URL` (mục 3.7). App vẫn chạy nhờ polling khi đang mở trang |
-| Upload file lớn báo lỗi / timeout | File quá lớn cho Render free (RAM 512MB, mạng) | Dùng file ≤ 100MB; nén sang m4a/mp3 trước khi tải lên |
+| Upload file lớn báo lỗi / timeout | Mạng yếu hoặc gián đoạn kết nối tới Soniox | Code đã mở không giới hạn dung lượng (`MAX_UPLOAD_MB=0`). Soniox hỗ trợ file audio dài tối đa 5 giờ / file và tổng dung lượng lưu trữ tài khoản là 10GB |
 | Quét nhiều file: phiên xong nhưng có dòng "Không đọc được N file" | Một vài ảnh/PDF hỏng hoặc Mistral lỗi riêng file đó | Các file khác vẫn được giữ; xem Render Logs dòng `OCR thất bại cho file`, tải riêng file lỗi lên lại |
 | Ghi chú: nút chèn ảnh bị mờ / chèn ảnh báo `503` "Chưa cấu hình Supabase Storage" | Thiếu `SUPABASE_SECRET_KEY` | Thêm biến trên Render → `/api/health` có `"note_images_configured":true` |
 | Ghi chú: chèn ảnh báo "Không lưu được ảnh lên kho lưu trữ" (502) | Sai secret key, project Supabase bị tạm dừng, hoặc `SUPABASE_URL` sai (khi khai báo tay) | Xem Render Logs; kiểm tra key ở Project Settings → API Keys; Storage → bucket `note-assets` phải là **Private** |

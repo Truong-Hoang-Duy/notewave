@@ -53,7 +53,7 @@ async def upload_and_transcribe(
     size = _file_size(file)
     if size == 0:
         raise HTTPException(status_code=422, detail="File rỗng.")
-    if size > settings.max_upload_mb * 1024 * 1024:
+    if settings.max_upload_mb > 0 and size > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(status_code=413, detail=f"File vượt quá giới hạn {settings.max_upload_mb} MB.")
     group = get_group_or_404(db, group_id) if group_id else None
 

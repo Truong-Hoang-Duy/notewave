@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     soniox_webhook_secret: str = ""
 
-    max_upload_mb: int = Field(default=100, ge=1)
+    max_upload_mb: int = Field(default=0, ge=0, description="Dung lượng tối đa mỗi file ghi âm (MB). 0 = không giới hạn.")
 
     # Mistral OCR cho luồng "Quét tài liệu" (ảnh / PDF). Key chỉ dùng ở backend.
     mistral_api_key: str = ""
