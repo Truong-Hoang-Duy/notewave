@@ -182,8 +182,8 @@ export const api = {
   },
 
   /** Upload 1 file audio -> Soniox Async API (1 request = 1 phiên; tải nhiều file = nhiều request). */
-  uploadAudio: (file, { groupId, ...options } = {}) =>
-    uploadWithProgress('/api/upload-transcribe', { file, group_id: groupId }, options),
+  uploadAudio: (file, { groupId, title, ...options } = {}) =>
+    uploadWithProgress('/api/upload-transcribe', { file, group_id: groupId, title }, options),
   /** Upload 1 hoặc nhiều ảnh / PDF -> gộp thành 1 phiên, Mistral OCR + rà soát từ tiếng Anh (xử lý nền). */
   ocrExtract: (files, options) => uploadWithProgress('/api/ocr-extract', { files: [].concat(files) }, options),
 }

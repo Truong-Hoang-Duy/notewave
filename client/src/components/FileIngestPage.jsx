@@ -31,13 +31,17 @@ const batchLabel = (items) => (items.length === 1 ? items[0].file.name : `${item
  * stage: select | uploading | processing | done | failed
  */
 export default function FileIngestPage({ config, onOpenHistory, onOpenSession }) {
-  const { storageKey } = config
-  const [stage, setStage] = useState(() => (readActive(storageKey) ? 'processing' : 'select'))
+  const [stage, setStage] = useState('select')
   const [items, setItems] = useState([]) // [{ id, file }]
   const [progress, setProgress] = useState(0)
   const [uploadError, setUploadError] = useState(null)
-  const [active, setActive] = useState(() => readActive(storageKey)) // { sessionId, filename, startedAt }
+  const [active, setActive] = useState(null)
   const abortRef = useRef(null)
+
+  // Luôn làm mới trạng thái ban đầu khi tải lại trang
+  useEffect(() => {
+    writeActive(storageKey, null)
+  }, [storageKey])
 
   const status = useUploadStatus(active?.sessionId, stage === 'processing', config.fetchStatus)
 

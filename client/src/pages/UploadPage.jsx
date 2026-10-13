@@ -12,41 +12,12 @@ const ACCEPTED_EXTENSIONS = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', '
 const MAX_FILES = 20
 // Số file tải lên cùng lúc (mỗi file 1 request) — tránh nghẽn mạng/băng thông và RAM của Render free.
 const CONCURRENT_UPLOADS = 2
-const JOBS_KEY = 'notewave:active-uploads'
-const LEGACY_KEY = 'notewave:active-upload' // phiên bản cũ chỉ lưu 1 file
 
 function validateFile(file) {
   const ext = file.name.split('.').pop()?.toLowerCase()
   if (!ext || !ACCEPTED_EXTENSIONS.includes(ext)) return `Định dạng “.${ext ?? '?'}” không được hỗ trợ (dùng ${ACCEPTED_EXTENSIONS.slice(0, 7).join(', ')}…).`
   if (file.size === 0) return 'File rỗng.'
   return null
-}
-
-/** Chỉ các file đã tạo phiên (có sessionId) mới khôi phục được sau khi tải lại trang — File chưa gửi không lưu được. */
-function loadJobs() {
-  try {
-    const list = JSON.parse(localStorage.getItem(JOBS_KEY)) ?? []
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY))
-    if (legacy?.sessionId && !list.some((j) => j.sessionId === legacy.sessionId)) {
-      list.push({ key: `legacy-${legacy.sessionId}`, filename: legacy.filename, sessionId: legacy.sessionId, startedAt: legacy.startedAt, status: 'processing' })
-    }
-    localStorage.removeItem(LEGACY_KEY)
-    return list.filter((j) => j.sessionId).map((j) => ({ ...j, progress: 1 }))
-  } catch {
-    return []
-  }
-}
-
-function saveJobs(jobs) {
-  try {
-    const persisted = jobs
-      .filter((j) => j.sessionId)
-      .map(({ key, filename, size, sessionId, startedAt, status, error }) => ({ key, filename, size, sessionId, startedAt, status, error }))
-    if (persisted.length) localStorage.setItem(JOBS_KEY, JSON.stringify(persisted))
-    else localStorage.removeItem(JOBS_KEY)
-  } catch {
-    /* ignore */
-  }
 }
 
 /**
@@ -57,15 +28,23 @@ function saveJobs(jobs) {
 export default function UploadPage({ onOpenHistory, onOpenSession }) {
   const [items, setItems] = useState([]) // file đang chọn, chưa gửi
   const [groupId, setGroupId] = useState('')
-  const [jobs, setJobs] = useState(loadJobs)
+  const [jobs, setJobs] = useState([]) // Khởi tạo rỗng để khi load lại trang luôn làm mới như ban đầu
   const [now, setNow] = useState(() => Date.now())
   const abortsRef = useRef(new Map())
   const startedRef = useRef(new Set())
 
+  // Dọn sạch các key cache cũ để khi load lại trang luôn mới hoàn toàn
+  useEffect(() => {
+    try {
+      localStorage.removeItem('notewave:active-uploads')
+      localStorage.removeItem('notewave:active-upload')
+    } catch {
+      /* ignore */
+    }
+  }, [])
+
   const update = useCallback((key, patch) => setJobs((list) => list.map((j) => (j.key === key ? { ...j, ...patch } : j))), [])
   const removeJob = useCallback((key) => setJobs((list) => list.filter((j) => j.key !== key)), [])
-
-  useEffect(() => saveJobs(jobs), [jobs])
 
   // Hàng đợi: luôn giữ tối đa CONCURRENT_UPLOADS file đang tải lên.
   useEffect(() => {
@@ -74,7 +53,11 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
     for (const job of queued.slice(0, Math.max(0, CONCURRENT_UPLOADS - uploading))) {
       startedRef.current.add(job.key)
       update(job.key, { status: 'uploading', progress: 0, error: null })
-      const { promise, abort } = api.uploadAudio(job.file, { groupId: job.groupId, onProgress: (p) => update(job.key, { progress: p }) })
+      const { promise, abort } = api.uploadAudio(job.file, {
+        title: job.title,
+        groupId: job.groupId,
+        onProgress: (p) => update(job.key, { progress: p }),
+      })
       abortsRef.current.set(job.key, abort)
       promise
         .then((res) => update(job.key, { status: 'processing', sessionId: res.session_id, startedAt: Date.now(), progress: 1, file: null }))
@@ -115,15 +98,20 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
   }, [processing])
 
   const enqueue = () => {
-    const next = items.map((item) => ({
-      key: item.id,
-      file: item.file,
-      filename: item.file.name,
-      size: item.file.size,
-      groupId: groupId || null,
-      status: 'queued',
-      progress: 0,
-    }))
+    const next = items.map((item) => {
+      const stem = item.file.name.replace(/\.[^/.]+$/, '')
+      const customTitle = (item.title !== undefined ? item.title : stem).trim() || stem
+      return {
+        key: item.id,
+        file: item.file,
+        filename: item.file.name,
+        title: customTitle,
+        size: item.file.size,
+        groupId: groupId || null,
+        status: 'queued',
+        progress: 0,
+      }
+    })
     setJobs((list) => [...list, ...next])
     setItems([])
   }
@@ -140,12 +128,12 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
 
   const clearFinished = () => setJobs((list) => list.filter((j) => j.status !== 'completed' && j.status !== 'failed'))
 
-  // Chỉ tải 1 file và đã xong: giữ trải nghiệm cũ — xem transcript ngay tại trang.
+  // Chỉ tải 1 file và đã xong: giữ trải nghiệm xem transcript ngay tại trang.
   const single = jobs.length === 1 && items.length === 0 && jobs[0].status === 'completed' ? jobs[0] : null
   if (single) {
     return (
       <div className="space-y-6">
-        <InlineAlert tone="info">Đã chuyển xong “{single.filename}”. Phiên đã được lưu vào Lịch sử.</InlineAlert>
+        <InlineAlert tone="info">Đã chuyển xong “{single.title || single.filename}”. Phiên đã được lưu vào Lịch sử.</InlineAlert>
         <SessionDetail sessionId={single.sessionId} onDeleted={() => setJobs([])} onOpenSession={onOpenSession} />
         <div className="flex justify-center pt-2">
           <Button icon={RotateCcw} onClick={() => setJobs([])}>
@@ -177,6 +165,7 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
         dropHint="MP3, WAV, M4A, AAC, OGG, FLAC, WEBM… · không giới hạn dung lượng"
         fileIcon={FileAudio}
         fileIconTone="bg-[#efedf9] text-[#4a44a8]"
+        editableTitle
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <GroupSelect
@@ -258,7 +247,10 @@ function JobRow({ job, now, onStatus, onOpen, onRetry, onRemove }) {
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-ink">{job.filename}</p>
+        <p className="truncate text-sm font-medium text-ink">{job.title || job.filename}</p>
+        {job.title && job.title !== job.filename && (
+          <p className="truncate font-mono text-[11.5px] text-muted/80">{job.filename}</p>
+        )}
         {job.status === 'uploading' ? (
           <div className="mt-1.5 flex items-center gap-2">
             <div className="h-1 flex-1 overflow-hidden rounded-full bg-sunken">

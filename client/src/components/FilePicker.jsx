@@ -27,6 +27,7 @@ export default function FilePicker({
   thumbnails = false,
   preview = false,
   disabled = false,
+  editableTitle = false,
   children,
 }) {
   const inputRef = useRef(null)
@@ -51,7 +52,8 @@ export default function FilePicker({
       else if (items.length + accepted.length >= maxFiles) errors.push({ name: file.name, reason: `Vượt quá ${maxFiles} file mỗi lần.` })
       else {
         seen.add(fileKey(file))
-        accepted.push({ id: `f${++nextId}`, file })
+        const defaultTitle = file.name.replace(/\.[^/.]+$/, '')
+        accepted.push({ id: `f${++nextId}`, file, title: defaultTitle })
       }
     }
     setRejected(errors)
@@ -221,11 +223,34 @@ export default function FilePicker({
                   )
                   const info = (
                     <div className="min-w-0 flex-1 text-left">
-                      <p className="truncate text-sm font-medium text-ink">{item.file.name}</p>
-                      <p className="text-[12.5px] text-muted">
-                        {formatBytes(item.file.size)}
-                        {canPreview && <span className="ml-1.5 text-brand-600 group-hover/file:underline">· xem trước</span>}
-                      </p>
+                      {editableTitle ? (
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            value={item.title !== undefined ? item.title : item.file.name.replace(/\.[^/.]+$/, '')}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              onChange(items.map((it) => (it.id === item.id ? { ...it, title: val } : it)))
+                            }}
+                            placeholder="Nhập tên phiên ghi âm..."
+                            className="w-full rounded-md border border-line bg-surface px-2.5 py-1 text-sm font-medium text-ink shadow-xs transition-colors hover:border-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            title="Đặt tên cho phiên ghi âm này"
+                          />
+                          <p className="text-[12px] text-muted">
+                            <span className="font-mono text-muted/70">{item.file.name}</span> · {formatBytes(item.file.size)}
+                            {canPreview && <span className="ml-1.5 text-brand-600 group-hover/file:underline">· xem trước</span>}
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="truncate text-sm font-medium text-ink">{item.file.name}</p>
+                          <p className="text-[12.5px] text-muted">
+                            {formatBytes(item.file.size)}
+                            {canPreview && <span className="ml-1.5 text-brand-600 group-hover/file:underline">· xem trước</span>}
+                          </p>
+                        </>
+                      )}
                     </div>
                   )
                   if (!canPreview) {
