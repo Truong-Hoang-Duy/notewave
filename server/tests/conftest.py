@@ -14,15 +14,18 @@ from sqlalchemy import text
 
 from app.config import Settings
 from tests.helpers import TEST_SCHEMA, qualified
+
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL") or Settings().database_url
 if not TEST_DATABASE_URL:
     raise RuntimeError("Chưa có DATABASE_URL (hoặc TEST_DATABASE_URL) để chạy test — điền connection string Supabase vào .env.")
 
 # Phải đặt biến môi trường TRƯỚC khi import app (engine + settings được tạo lúc import).
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-os.environ["SONIOX_API_KEY"] = "test-soniox-key"
+os.environ["STT_PROVIDER"] = "auto"
+os.environ["DEEPGRAM_API_KEY"] = "test-deepgram-key"
+os.environ["GLADIA_API_KEY"] = "test-gladia-key"
 os.environ["PUBLIC_BASE_URL"] = "https://api.example.com"
-os.environ["SONIOX_WEBHOOK_SECRET"] = "s3cret"
+os.environ["STT_WEBHOOK_SECRET"] = "s3cret"
 os.environ["MISTRAL_API_KEY"] = "test-mistral-key"
 os.environ["SUPABASE_URL"] = "https://storage.example.supabase.co"
 os.environ["SUPABASE_SECRET_KEY"] = "sb_secret_test"
@@ -43,9 +46,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app.db import engine  # noqa: E402
 from app.main import app  # noqa: E402
 
-from tests.soniox_fake import soniox  # noqa: E402, F401  (fixture Soniox giả lập)
 from tests.mistral_fake import mistral  # noqa: E402, F401  (fixture Mistral OCR giả lập)
 from tests.storage_fake import storage  # noqa: E402, F401  (fixture Supabase Storage giả lập)
+from tests.stt_fake import stt  # noqa: E402, F401  (fixture Deepgram/Gladia giả lập)
 
 
 @pytest.fixture(scope="session")

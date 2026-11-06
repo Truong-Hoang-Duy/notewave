@@ -2,12 +2,15 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 SERVER_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = SERVER_DIR.parent
+
+SttProvider = Literal["deepgram", "gladia"]
 
 
 class Settings(BaseSettings):
@@ -20,13 +23,16 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    soniox_api_key: str = ""
-    soniox_api_base_url: str = "https://api.soniox.com"
-    soniox_async_model: str = "stt-async-v5"
+    # Speech-to-Text: "auto" (ưu tiên Deepgram rồi tới Gladia theo key đang có), "deepgram" hoặc "gladia".
+    stt_provider: str = "auto"
+    deepgram_api_key: str = ""
+    deepgram_api_base_url: str = "https://api.deepgram.com"
+    deepgram_model: str = "nova-3"
+    gladia_api_key: str = ""
+    gladia_api_base_url: str = "https://api.gladia.io"
     temporary_key_ttl_seconds: int = Field(default=60, ge=1, le=3600)
 
-    # Luôn là connection string Postgres (Supabase): local do `supabase start` cấp,
-    # production lấy ở Supabase Dashboard (Transaction pooler). Không có giá trị mặc định.
+    # Luôn là connection string Postgres (Supabase): local và production lấy ở Supabase Dashboard (Transaction pooler).
     database_url: str = ""
     allowed_origins: str = "http://localhost:5173"
 
@@ -38,9 +44,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
 
     # URL public của backend (vd: https://notewave-api.onrender.com). Khi có giá trị,
-    # upload sẽ đăng ký webhook với Soniox; để trống thì frontend chỉ dùng polling.
+    # upload sẽ đăng ký webhook (Gladia); để trống thì frontend chỉ dùng polling.
     public_base_url: str = ""
-    soniox_webhook_secret: str = ""
+    stt_webhook_secret: str = ""
 
     max_upload_mb: int = Field(default=0, ge=0, description="Dung lượng tối đa mỗi file ghi âm (MB). 0 = không giới hạn.")
 
@@ -57,6 +63,36 @@ class Settings(BaseSettings):
     note_image_max_mb: int = Field(default=10, ge=1, le=50)
 
     @property
+    def active_stt_provider(self) -> SttProvider | None:
+        choice = (self.stt_provider or "auto").strip().lower()
+        if choice == "deepgram":
+            return "deepgram" if self.deepgram_api_key else None
+        if choice == "gladia":
+            return "gladia" if self.gladia_api_key else None
+        if self.deepgram_api_key:
+            return "deepgram"
+        if self.gladia_api_key:
+            return "gladia"
+        return None
+
+    @property
+    def available_stt_providers(self) -> list[SttProvider]:
+        providers: list[SttProvider] = []
+        if self.deepgram_api_key:
+            providers.append("deepgram")
+        if self.gladia_api_key:
+            providers.append("gladia")
+        return providers
+
+    @property
+    def stt_configured(self) -> bool:
+        return self.active_stt_provider is not None
+
+    @property
+    def webhook_secret(self) -> str:
+        return self.stt_webhook_secret
+
+    @property
     def supabase_storage_url(self) -> str:
         if self.supabase_url:
             return self.supabase_url.rstrip("/")
@@ -71,7 +107,7 @@ class Settings(BaseSettings):
     def webhook_url(self) -> str | None:
         if not self.public_base_url:
             return None
-        return f"{self.public_base_url.rstrip('/')}/api/webhooks/soniox"
+        return f"{self.public_base_url.rstrip('/')}/api/webhooks/stt"
 
 
 @lru_cache

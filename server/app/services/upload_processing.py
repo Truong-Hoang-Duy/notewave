@@ -1,46 +1,45 @@
-"""Hoàn tất một phiên upload khi Soniox báo xong — dùng chung cho polling và webhook."""
+"""Hoàn tất một phiên upload khi dịch vụ STT (Deepgram / Gladia) báo xong — dùng chung cho polling và webhook."""
 
 import logging
 
 from sqlmodel import Session
 
 from app.models.session import NoteSession
-from app.services.soniox import SonioxError, SonioxService
-from app.services.transcript import tokens_to_segments
+from app.services.stt import SttError, SttService
 
 logger = logging.getLogger(__name__)
 
 
-async def _cleanup(soniox: SonioxService, session: NoteSession) -> None:
-    if session.soniox_file_id:
-        await soniox.delete_file(session.soniox_file_id)
-    if session.soniox_transcription_id:
-        await soniox.delete_transcription(session.soniox_transcription_id)
+async def _cleanup(stt: SttService, session: NoteSession) -> None:
+    if session.stt_file_id:
+        await stt.delete_file(session.stt_file_id)
+    if session.stt_transcription_id:
+        await stt.delete_transcription(session.stt_transcription_id, file_id=session.stt_file_id)
 
 
-async def sync_upload_session(db: Session, soniox: SonioxService, session: NoteSession) -> NoteSession:
-    """Hỏi Soniox trạng thái job; nếu đã xong thì lưu transcript, đổi trạng thái và dọn file.
+async def sync_upload_session(db: Session, stt: SttService, session: NoteSession) -> NoteSession:
+    """Kiểm tra trạng thái job STT; nếu đã xong thì lưu transcript, đổi trạng thái và dọn file.
 
     An toàn khi gọi lặp lại (polling và webhook có thể chạy chồng nhau).
     """
-    if session.status != "processing" or not session.soniox_transcription_id:
+    if session.status != "processing" or not session.stt_transcription_id:
         return session
 
-    job = await soniox.get_transcription(session.soniox_transcription_id)
+    job = await stt.get_transcription(session.stt_transcription_id, file_id=session.stt_file_id)
     job_status = job.get("status")
 
     if job_status == "completed":
-        data = await soniox.get_transcript(session.soniox_transcription_id)
+        segments = job.get("segments") or []
         db.refresh(session)
         if session.status != "processing":
             return session  # Một request khác đã hoàn tất trước.
-        session.set_segments(tokens_to_segments(data.get("tokens", [])))
+        session.set_segments(segments)
         session.duration_ms = job.get("audio_duration_ms") or _last_end_ms(session)
         session.status = "completed"
         session.error_message = None
     elif job_status == "error":
         session.status = "failed"
-        session.error_message = job.get("error_message") or "Soniox không xử lý được file này."
+        session.error_message = job.get("error_message") or "Không xử lý được file ghi âm này."
     else:
         return session  # queued / processing
 
@@ -50,9 +49,9 @@ async def sync_upload_session(db: Session, soniox: SonioxService, session: NoteS
     db.refresh(session)
 
     try:
-        await _cleanup(soniox, session)
-    except SonioxError:
-        logger.warning("Không dọn được file Soniox cho session %s", session.id)
+        await _cleanup(stt, session)
+    except SttError:
+        logger.warning("Không dọn được tài nguyên STT cho session %s", session.id)
     return session
 
 

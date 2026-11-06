@@ -1,7 +1,9 @@
-import { CloudOff, FileAudio, History, Mic, NotebookPen, RefreshCw, ScanText, ServerCog } from 'lucide-react'
+import { CloudOff, FileAudio, History, MessageSquareText, Mic, NotebookPen, RefreshCw, ScanText, ServerCog } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import SessionDetail from './components/SessionDetail'
+import SttProviderToggle from './components/SttProviderToggle'
 import { Spinner } from './components/ui'
+import { purgeExpiredChatThreads } from './hooks/useChatStore'
 import { useNetworkStatus } from './hooks/useNetworkStatus'
 import { api, subscribeSlowRequests } from './lib/api'
 import HistoryPage from './pages/HistoryPage'
@@ -9,15 +11,17 @@ import LivePage from './pages/LivePage'
 import ScanPage from './pages/ScanPage'
 import UploadPage from './pages/UploadPage'
 
-// Ghi chú là chunk riêng: trang chi tiết kéo theo Tiptap, chỉ tải khi người dùng mở tab Ghi chú.
+// Ghi chú & Hỏi đáp là chunk riêng: chỉ tải khi người dùng mở tab tương ứng.
 const NotesPage = lazy(() => import('./pages/NotesPage'))
 const NoteDetail = lazy(() => import('./components/notes/NoteDetail'))
+const ChatPage = lazy(() => import('./pages/ChatPage'))
 
 const TABS = [
   { id: 'live', label: 'Ghi âm trực tiếp', short: 'Ghi âm', icon: Mic },
-  { id: 'upload', label: 'Tải audio', short: 'Audio', icon: FileAudio },
+  { id: 'upload', label: 'Tải audio · video', short: 'Audio', icon: FileAudio },
   { id: 'scan', label: 'Quét tài liệu', short: 'Quét', icon: ScanText },
   { id: 'notes', label: 'Ghi chú', short: 'Ghi chú', icon: NotebookPen },
+  { id: 'chat', label: 'Hỏi đáp AI', short: 'Hỏi đáp', icon: MessageSquareText },
   { id: 'history', label: 'Lịch sử', short: 'Lịch sử', icon: History },
 ]
 
@@ -71,9 +75,12 @@ export default function App() {
   const { isOnline, isSyncing, pendingCount, triggerSync } = useNetworkStatus()
 
   useEffect(() => {
+    // Dọn lịch sử chat localStorage đã quá hạn TTL ngay khi mở app và định kỳ mỗi 5 phút.
+    purgeExpiredChatThreads()
     // Đánh thức backend (Render free ngủ sau 15 phút) ngay khi mở app và ping định kỳ giữ ấm khi tab mở.
     api.health().catch(() => {})
     const keepAliveTimer = setInterval(() => {
+      purgeExpiredChatThreads()
       if (document.visibilityState === 'visible') {
         api.health().catch(() => {})
       }
@@ -89,9 +96,9 @@ export default function App() {
   const openSession = useCallback((id) => navigate(`history/${id}`), [navigate])
 
   return (
-    <div className="min-h-svh pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
+    <div className="min-h-svh pb-[calc(4.25rem+env(safe-area-inset-bottom))] md:pb-0">
       <header className="sticky top-0 z-30 border-b border-line/80 bg-paper/85 pt-[env(safe-area-inset-top)] backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-[96rem] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-14 max-w-[96rem] items-center justify-between gap-2 px-3 sm:h-16 sm:gap-4 sm:px-6 lg:px-8">
           <Logo />
           <nav className="hidden rounded-xl border border-line bg-sunken/60 p-1 md:flex" aria-label="Điều hướng chính">
             {TABS.map((tab) => {
@@ -106,7 +113,7 @@ export default function App() {
                   }`}
                 >
                   <tab.icon className="size-4" />
-                  {/* 5 tab: từ md tới dưới lg dùng nhãn ngắn để không tràn header. */}
+                  {/* 6 tab: từ md tới dưới lg dùng nhãn ngắn để không tràn header. */}
                   <span className="lg:hidden">{tab.short}</span>
                   <span className="hidden lg:inline">{tab.label}</span>
                   {tab.id === 'live' && recording && <span className="size-2 animate-rec-pulse rounded-full bg-rec" aria-label="đang ghi" />}
@@ -114,23 +121,24 @@ export default function App() {
               )
             })}
           </nav>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2">
+            <SttProviderToggle size="sm" disabled={recording} />
             {!isOnline && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-3 py-1.5 text-xs font-semibold text-warn">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-2.5 py-1 text-xs font-semibold text-warn">
                 <CloudOff className="size-3.5" />
                 <span className="hidden sm:inline">Ngoại tuyến</span>
               </span>
             )}
             {isOnline && isSyncing && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-700">
                 <RefreshCw className="size-3.5 animate-spin" />
                 <span className="hidden sm:inline">Đang đồng bộ</span>
               </span>
             )}
             {recording && route.tab !== 'live' && (
-              <a href="#/live" className="flex items-center gap-2 rounded-full bg-rec-soft px-3 py-1.5 text-xs font-semibold text-rec">
+              <a href="#/live" className="flex items-center gap-1.5 rounded-full bg-rec-soft px-2.5 py-1 text-xs font-semibold text-rec">
                 <span className="size-2 animate-rec-pulse rounded-full bg-rec" />
-                Đang ghi
+                <span className="hidden xs:inline">Đang ghi</span>
               </a>
             )}
           </div>
@@ -186,7 +194,13 @@ export default function App() {
         </div>
       )}
 
-      <main className="mx-auto max-w-[96rem] px-4 py-6 sm:px-6 sm:py-10 lg:px-8">
+      <main
+        className={`mx-auto max-w-[96rem] ${
+          route.tab === 'chat'
+            ? 'px-2.5 py-2.5 sm:px-6 sm:py-6 lg:px-8'
+            : 'px-4 py-5 sm:px-6 sm:py-10 lg:px-8'
+        }`}
+      >
         {/* Luôn giữ LivePage, UploadPage & ScanPage được mount để việc ghi âm / tải lên không bị ngắt khi chuyển tab. */}
         {/* Mỗi trang tự giới hạn bề rộng phần form; transcript được dùng toàn bộ chiều ngang. */}
         <div hidden={route.tab !== 'live'}>
@@ -205,6 +219,11 @@ export default function App() {
             ) : (
               <NotesPage onOpen={(id) => navigate(`notes/${id}`)} />
             )}
+          </Suspense>
+        )}
+        {route.tab === 'chat' && (
+          <Suspense fallback={<PageFallback />}>
+            <ChatPage onOpenSession={openSession} onOpenNote={(id) => navigate(`notes/${id}`)} />
           </Suspense>
         )}
         {route.tab === 'history' &&
@@ -227,7 +246,7 @@ export default function App() {
         className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md md:hidden"
         aria-label="Điều hướng chính"
       >
-        <div className="grid grid-cols-5">
+        <div className="grid grid-cols-6">
           {TABS.map((tab) => {
             const active = route.tab === tab.id
             return (
@@ -235,13 +254,13 @@ export default function App() {
                 key={tab.id}
                 href={`#/${tab.id}`}
                 aria-current={active ? 'page' : undefined}
-                className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors ${active ? 'text-brand-700' : 'text-muted'}`}
+                className={`relative flex min-w-0 flex-col items-center gap-0.5 py-2 text-[10.5px] leading-tight font-medium transition-colors ${active ? 'text-brand-700' : 'text-muted'}`}
               >
-                <span className={`grid h-7 w-12 place-items-center rounded-full transition-colors duration-200 ${active ? 'bg-brand-50' : ''}`}>
-                  <tab.icon className="size-[18px]" />
+                <span className={`grid h-6 w-10 place-items-center rounded-full transition-colors duration-200 ${active ? 'bg-brand-50' : ''}`}>
+                  <tab.icon className="size-[17px]" />
                 </span>
-                {tab.short}
-                {tab.id === 'live' && recording && <span className="absolute top-2 right-[calc(50%-1.25rem)] size-2 animate-rec-pulse rounded-full bg-rec" />}
+                <span className="max-w-full truncate px-0.5">{tab.short}</span>
+                {tab.id === 'live' && recording && <span className="absolute top-1.5 right-[calc(50%-1rem)] size-2 animate-rec-pulse rounded-full bg-rec" />}
               </a>
             )
           })}

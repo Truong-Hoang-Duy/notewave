@@ -8,18 +8,18 @@ from app.db import get_db
 from app.models.group import SessionGroup
 from app.models.session import NoteSession
 from app.services.ocr import OcrService
-from app.services.soniox import SonioxService
 from app.services.storage import SupabaseStorage
+from app.services.stt import SttService
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 DbDep = Annotated[Session, Depends(get_db)]
 
 
-def get_soniox(request: Request, settings: SettingsDep) -> SonioxService:
-    return SonioxService(request.app.state.http, settings)
+def get_stt(request: Request, settings: SettingsDep) -> SttService:
+    return SttService(request.app.state.http, settings)
 
 
-SonioxDep = Annotated[SonioxService, Depends(get_soniox)]
+SttDep = Annotated[SttService, Depends(get_stt)]
 
 
 def get_ocr(request: Request, settings: SettingsDep) -> OcrService:

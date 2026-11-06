@@ -9,7 +9,7 @@
 
 **NoteWave** là ứng dụng web ghi chú/phụ đề cuộc họp bằng giọng nói, gồm 3 luồng nhập liệu:
 1. **Ghi âm trực tiếp** — nói vào micro, transcript hiện real-time (phụ đề trực tiếp).
-2. **Tải file ghi âm lên** — upload file audio có sẵn (.mp3, .wav, .m4a...), nhận lại transcript đầy đủ.
+2. **Tải file ghi âm / video lên** — upload file audio (.mp3, .wav, .m4a...) hoặc video (.mov, .mp4, .mkv, .webm, .avi...; trình duyệt tự tách kênh âm thanh nhẹ trước khi gửi lên server), nhận lại transcript đầy đủ.
 3. **Quét tài liệu** — chụp ảnh / tải ảnh hoặc PDF (biên bản viết tay, bảng trắng...), Mistral OCR trích xuất Markdown,
    AI đề xuất sửa từ tiếng Anh viết sai để người dùng duyệt.
 
@@ -24,8 +24,7 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 
 - **Frontend:** React 19 + Vite, Tailwind CSS v4 (`@tailwindcss/vite`, token màu/font khai báo
   trong `@theme` ở `client/src/index.css`). Thư mục `/client`. Thư viện phụ đã được duyệt:
-  `@soniox/client` (SDK chính thức — ghi âm micro + WebSocket real-time), `lucide-react` (icon),
-  `react-markdown` + `remark-gfm` (render Markdown OCR — chunk lazy, chỉ tải khi mở phiên OCR),
+  `lucide-react` (icon), `react-markdown` + `remark-gfm` (render Markdown OCR — chunk lazy, chỉ tải khi mở phiên OCR),
   `pdfjs-dist` (xem trước PDF trước khi tải lên — chunk lazy, chỉ tải khi mở preview một file PDF),
   **Tiptap v3** (`@tiptap/react`, `pm`, `starter-kit`, `extension-list`, `extensions`, `markdown`, `extension-unique-id` —
   editor của Ghi chú, chunk lazy chỉ tải khi mở một ghi chú; duyệt 2026-09-18) + `extension-table`, `extension-image`,
@@ -57,21 +56,22 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
   - Dùng Postgres + **Storage** của Supabase (Storage cho ảnh trong Ghi chú — `services/storage.py` gọi REST bằng `httpx` từ
     backend với `SUPABASE_SECRET_KEY`, bucket private). Chưa dùng Supabase Auth, không dùng SDK Supabase ở client.
   - Bảng tạo bằng `SQLModel.metadata.create_all` lúc khởi động (không dùng migrations của Supabase CLI).
-- **Speech-to-Text:** Soniox API.
-  - Ghi âm trực tiếp → **Real-time WebSocket API** (`wss://api.soniox.com/transcribe-websocket`),
-    kết nối thẳng từ trình duyệt bằng **Temporary API Key** lấy từ backend.
-  - Tải file lên → **Async API** (REST): `POST /v1/files` upload → `POST /v1/transcriptions`
-    tạo job → lấy kết quả qua polling hoặc webhook. Luôn thực hiện từ backend, dùng thẳng
-    `SONIOX_API_KEY` (không expose ra client).
+- **Speech-to-Text:** **Deepgram API (`nova-3`) và Gladia API (`v2`)** — chọn qua biến môi trường `STT_PROVIDER=auto|deepgram|gladia`
+  (quyết định 2026-11-06).
+  - Ghi âm trực tiếp → **Real-time WebSocket API** (`client/src/lib/liveStt.js`), kết nối thẳng từ trình duyệt bằng
+    khoá/URL phiên tạm thời lấy từ `POST /api/temporary-key` (Deepgram `/v1/auth/grant` + `MediaRecorder`; Gladia `/v2/live` + PCM 16kHz).
+  - Tải file lên → `services/stt.py`: Deepgram `POST /v1/listen` (`diarize=true&utterances=true`) hoặc Gladia `POST /v2/upload` →
+    `POST /v2/pre-recorded` (`diarization=true`) → lấy kết quả qua polling hoặc webhook (`/api/webhooks/stt`). Luôn thực hiện từ
+    backend, dùng `DEEPGRAM_API_KEY` / `GLADIA_API_KEY` (không expose ra client).
 - **OCR (Quét tài liệu):** Mistral OCR API (`mistral-ocr-latest`) qua SDK `mistralai`, luôn từ backend với
   `MISTRAL_API_KEY`. Chưa có storage public nên: upload file lên Mistral Files API (`purpose="ocr"`) → lấy signed URL
   ngắn hạn của chính file đó → `ocr.process` (`document_url` cho PDF, `image_url` cho ảnh) → xoá file trên Mistral.
 
 ## 3. Quy tắc bảo mật quan trọng — LUÔN tuân thủ
 
-- **Không bao giờ** trả `SONIOX_API_KEY` (key chính) về client. Client chỉ nhận Temporary
-  API Key qua endpoint `POST /api/temporary-key`. `MISTRAL_API_KEY` cũng chỉ dùng ở backend.
-- Mọi API key (Soniox, LLM provider cho PydanticAI, v.v.) đọc từ biến môi trường qua
+- **Không bao giờ** trả `DEEPGRAM_API_KEY` hay `GLADIA_API_KEY` (key chính) về client. Client chỉ nhận khoá/URL
+  phiên tạm thời ngắn hạn qua endpoint `POST /api/temporary-key`. `MISTRAL_API_KEY` cũng chỉ dùng ở backend.
+- Mọi API key (Deepgram, Gladia, LLM provider cho PydanticAI, v.v.) đọc từ biến môi trường qua
   `pydantic-settings`, không hard-code trong source.
 - CORS ở backend đọc danh sách origin cho phép từ biến môi trường `ALLOWED_ORIGINS`,
   không để `*` khi build cho production.
@@ -84,14 +84,14 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 
 | Endpoint | Method | Chức năng |
 |---|---|---|
-| `/api/temporary-key` | POST | Sinh Temporary API Key cho luồng ghi âm trực tiếp |
+| `/api/temporary-key` | POST | Sinh khoá/URL phiên tạm thời cho luồng ghi âm trực tiếp (`?diarize=true\|false&provider=deepgram\|gladia`) |
 | `/api/sessions` | POST/GET | Tạo/liệt kê phiên ghi chú (field `source`: `"live"`, `"upload"` hoặc `"ocr"`) |
 | `/api/sessions/{id}` | GET/PATCH/DELETE | Xem/đổi tên (`{"title"}`)/xoá 1 phiên |
 | `/api/sessions/{id}/summarize` | POST | Gọi PydanticAI `summary_agent`, trả `MeetingSummary` |
 | `/api/sessions/{id}/export` | GET | Xuất `.txt` hoặc `.docx` (query `?format=`) |
-| `/api/upload-transcribe` | POST | Nhận 1 file audio (+ `group_id`? gán nhóm ngay), gọi Soniox Async API, tạo session `processing`. Tải nhiều file = nhiều request (frontend xếp hàng, tối đa 2 song song), mỗi file 1 phiên |
+| `/api/upload-transcribe` | POST | Nhận 1 file audio (+ `group_id`? gán nhóm ngay, `provider`? `deepgram\|gladia`), gọi Deepgram/Gladia API, tạo session `processing`. Tải nhiều file = nhiều request (frontend xếp hàng, tối đa 2 song song), mỗi file 1 phiên |
 | `/api/upload-transcribe/{id}/status` | GET | Poll trạng thái xử lý file (dùng khi chưa có webhook) |
-| `/api/webhooks/soniox` | POST | Nhận callback từ Soniox khi transcription xong |
+| `/api/webhooks/stt` | POST | Nhận callback từ dịch vụ STT khi transcription xong |
 | `/api/ocr-extract` | POST | Nhận 1–20 ảnh/PDF (multipart `files` lặp lại theo đúng thứ tự; `file` đơn vẫn nhận), kiểm tra định dạng / mỗi file ≤50MB / tổng ≤200MB / tổng ≤1000 trang, gộp thành MỘT session `source="ocr"` `processing`, OCR + rà soát chạy nền; trả 202 `{session_id, status, pages, files}` |
 | `/api/ocr-extract/{id}/status` | GET | Poll trạng thái phiên quét tài liệu (job nền mất do restart → `failed`) |
 | `/api/sessions/{id}/ocr-corrections` | POST | Chấp nhận / bỏ qua đề xuất sửa từ tiếng Anh: `{"accept": [ids], "reject": [ids]}` → `SessionRead`; chấp nhận thì sửa `segments`, nếu đã có tóm tắt đặt `summary_outdated=true` |
@@ -114,7 +114,8 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 | `/api/note-folders/{id}` | PATCH/DELETE | Đổi tên và/hoặc chuyển thư mục cha (`parent_id`, chặn vòng lặp → 422) / xoá: note + thư mục con chuyển lên thư mục cha (trùng tên thì thêm hậu tố " (2)"), không xoá note |
 | `/api/tags` | GET/POST | Liệt kê tag (kèm `note_count`) / tạo `{name}` (bỏ `#` đầu, gộp khoảng trắng, không trùng tên) |
 | `/api/tags/{id}` | PATCH/DELETE | Đổi tên / xoá tag (gỡ khỏi mọi note, note không bị xoá) |
-| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`, `soniox_configured`, `ocr_configured`, `note_images_configured`, `webhook_enabled`; luôn HTTP 200 |
+| `/api/chat/ask` | POST | Chat AI Agent tự nhiên (`question`, `session_ids`?, `note_ids`?, `history`?): không bắt buộc chọn trước tài liệu; Agent có 4 tool (`list_recent_documents`, `search_user_documents`, `read_session_content`, `read_note_content`) tự tìm & đọc bài giảng/ghi chú trong DB khi cần → `{answer_md, used_sources, model}`; lịch sử lưu tạm `localStorage` kèm TTL tự xoá |
+| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`, `stt_configured`, `stt_provider`, `stt_providers`, `ocr_configured`, `note_images_configured`, `webhook_enabled`; luôn HTTP 200 |
 
 Ghi chú:
 - `GET /api/sessions` hỗ trợ `?q=` (tìm theo tiêu đề/nội dung), `?source=live|upload|ocr`,
@@ -226,8 +227,8 @@ Ghi chú:
   `schema_translate_map={None: "notewave_test"}` (tên schema ghi rõ trong mọi câu lệnh — không dùng `search_path`
   vì Transaction pooler không giữ). TRUNCATE sau mỗi test chỉ trên schema test (có assert chặn). SQL thô trong app
   dùng `db._qualified()`, trong test dùng `tests.helpers.qualified()` — **tuyệt đối không viết SQL thô không kèm
-  schema trong test** (sẽ đụng `public` = dữ liệu thật). Soniox giả lập bằng `httpx.MockTransport`
-  (`tests/soniox_fake.py`), Mistral OCR bằng `tests/mistral_fake.py`, LLM giả lập bằng monkeypatch / `FunctionModel`
+  schema trong test** (sẽ đụng `public` = dữ liệu thật). Deepgram/Gladia giả lập bằng `httpx.MockTransport`
+  (`tests/stt_fake.py`), Mistral OCR bằng `tests/mistral_fake.py`, LLM giả lập bằng monkeypatch / `FunctionModel`
   — test không gọi API thật. Thêm endpoint mới thì
   thêm test tương ứng.
 
@@ -235,8 +236,10 @@ Ghi chú:
 
 Backend (`/.env` ở gốc repo hoặc `server/.env`; trên Render khai báo trong Dashboard / `render.yaml`):
 ```
-SONIOX_API_KEY=
-SONIOX_ASYNC_MODEL=      # mặc định stt-async-v5
+STT_PROVIDER=            # auto (mặc định: ưu tiên Deepgram rồi tới Gladia) | deepgram | gladia
+DEEPGRAM_API_KEY=        # Deepgram ($200 free credit)
+DEEPGRAM_MODEL=          # mặc định nova-3
+GLADIA_API_KEY=          # Gladia (10h free/tháng)
 DATABASE_URL=            # BẮT BUỘC, connection string Transaction pooler của Supabase — local dùng chung với production
 TEST_DATABASE_URL=       # tuỳ chọn, chỉ cho pytest; trống = DATABASE_URL (test chỉ dùng schema notewave_test)
 ALLOWED_ORIGINS=         # comma-separated, danh sách domain frontend được phép gọi API
@@ -245,8 +248,8 @@ SUMMARY_REASONING_EFFORT= # tuỳ chọn, chỉ model OpenAI: none|low|medium|hi
 OPENAI_API_KEY=          # (hoặc ANTHROPIC_API_KEY / GEMINI_API_KEY tuỳ SUMMARY_MODEL)
 MISTRAL_API_KEY=         # Mistral OCR cho "Quét tài liệu"; trống -> POST /api/ocr-extract trả 503
 OCR_MODEL=               # mặc định mistral-ocr-latest
-PUBLIC_BASE_URL=         # URL public của backend; có giá trị -> đăng ký webhook Soniox
-SONIOX_WEBHOOK_SECRET=   # Soniox gửi "Authorization: Bearer <secret>" khi gọi webhook
+PUBLIC_BASE_URL=         # URL public của backend; có giá trị -> đăng ký webhook STT
+STT_WEBHOOK_SECRET=      # Chuỗi bí mật bảo vệ webhook /api/webhooks/stt ("Authorization: Bearer <secret>")
 MAX_UPLOAD_MB=           # mặc định 0 (không giới hạn; đặt > 0 nếu muốn giới hạn dung lượng file ghi âm)
 SUPABASE_SECRET_KEY=     # Supabase Storage cho ảnh trong Ghi chú (sb_secret_... / service_role) — CHỈ backend; trống -> tắt chèn ảnh
 SUPABASE_URL=            # tuỳ chọn, trống = suy ra https://<ref>.supabase.co từ user "postgres.<ref>" trong DATABASE_URL
@@ -256,7 +259,6 @@ NOTE_IMAGE_MAX_MB=       # mặc định 10 (mỗi ảnh, sau khi trình duyệt
 Frontend (`client/.env`, trên Vercel khai báo trong Project Settings):
 ```
 VITE_API_BASE_URL=       # để trống khi dev (Vite proxy /api -> localhost:8000)
-VITE_SONIOX_RT_MODEL=    # mặc định stt-rt-v5
 VITE_MAX_UPLOAD_MB=      # mặc định 0 (0 = không giới hạn dung lượng)
 ```
 Cách lấy `DATABASE_URL` (local và Render dùng cùng giá trị):
@@ -345,7 +347,7 @@ Lưu ý: pydantic-settings không tự đưa giá trị file `.env` vào `os.env
   độ trễ backend ↔ DB. Thứ tự deploy: Supabase → GitHub → Render → Vercel → cập nhật `ALLOWED_ORIGINS`.
 - Khi thay đổi cách deploy (biến môi trường mới, dịch vụ mới, bước cấu hình mới) phải cập nhật `DEPLOY.md`
   (các bước + bảng xử lý sự cố) cùng với `.env.example` và `render.yaml`.
-- Webhook Soniox chỉ hoạt động khi backend có domain public (sau khi deploy lên Render);
+- Webhook STT chỉ hoạt động khi backend có domain public (sau khi deploy lên Render);
   lúc dev local, dùng polling thay vì webhook.
 
 ## 8. Khi không chắc, hãy hỏi trước khi tự quyết định

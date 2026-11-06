@@ -82,6 +82,30 @@
   [role='button']:not(:disabled) {
     cursor: pointer;
   }
+
+  /* Thanh cuộn tinh gọn toàn ứng dụng (ẩn mũi tên mặc định của Windows, tự mờ đi khi không chạm vào) */
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  *::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 9999px;
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background: rgb(211 204 191 / 0.75);
+  }
+  *:hover::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted);
+  }
 }
 
 @layer components {
@@ -91,11 +115,19 @@
     @apply animate-shimmer rounded-md;
   }
 
-  /* Vùng cuộn nội bộ: thanh cuộn mảnh tông giấy ấm; giữ chỗ thanh cuộn để nội dung không bị xô khi bắt đầu tràn. */
+  /* Vùng cuộn nội bộ: thanh cuộn mảnh tông giấy ấm. */
   .scroll-area {
     scrollbar-width: thin;
     scrollbar-color: var(--color-line-strong) transparent;
-    scrollbar-gutter: stable;
+  }
+
+  /* Ẩn hoàn toàn thanh cuộn nhưng vẫn lăn chuột / vuốt cảm ứng bình thường */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 

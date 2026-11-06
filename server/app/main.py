@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from app.config import export_llm_provider_keys, get_settings
 from app.db import check_database, describe_database, init_db
-from app.routers import groups, note_folders, note_media, notes, ocr, sessions, tags, temporary_key, upload, webhooks
+from app.routers import chat, groups, note_folders, note_media, notes, ocr, sessions, tags, temporary_key, upload, webhooks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 settings = get_settings()
@@ -61,13 +61,16 @@ app.include_router(note_media.router)
 app.include_router(notes.router)
 app.include_router(note_folders.router)
 app.include_router(tags.router)
+app.include_router(chat.router)
 
 
 class HealthResponse(BaseModel):
     status: str  # "ok" | "degraded" (backend chạy nhưng không kết nối được DB)
     database: str  # "ok" | "error"
     database_error: str | None = None  # tên loại lỗi, không kèm chi tiết connection string
-    soniox_configured: bool
+    stt_configured: bool
+    stt_provider: str | None = None  # "deepgram" | "gladia" | None
+    stt_providers: list[str] = []  # danh sách dịch vụ đã cấu hình key trên server
     ocr_configured: bool
     note_images_configured: bool  # có Supabase Storage (SUPABASE_SECRET_KEY) -> chèn được ảnh vào ghi chú
     webhook_enabled: bool
@@ -78,12 +81,15 @@ def health() -> HealthResponse:
     # Luôn trả 200 (kể cả khi DB lỗi): Render dùng endpoint này làm healthCheckPath, restart backend
     # không giúp gì khi Supabase tạm dừng project — xem field `database` để biết trạng thái DB.
     db_error = check_database()
+    current_settings = get_settings()
     return HealthResponse(
         status="ok" if db_error is None else "degraded",
         database="ok" if db_error is None else "error",
         database_error=db_error,
-        soniox_configured=bool(settings.soniox_api_key),
-        ocr_configured=bool(settings.mistral_api_key),
-        note_images_configured=bool(settings.supabase_storage_url and settings.supabase_secret_key),
-        webhook_enabled=settings.webhook_url is not None,
+        stt_configured=current_settings.stt_configured,
+        stt_provider=current_settings.active_stt_provider,
+        stt_providers=list(current_settings.available_stt_providers),
+        ocr_configured=bool(current_settings.mistral_api_key),
+        note_images_configured=bool(current_settings.supabase_storage_url and current_settings.supabase_secret_key),
+        webhook_enabled=current_settings.webhook_url is not None,
     )

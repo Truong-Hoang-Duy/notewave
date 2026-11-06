@@ -59,7 +59,7 @@ def test_summarize_clears_outdated_flag(client, make_session, monkeypatch):
     assert body["summary"]["summary"] == "mới" and body["summary_outdated"] is False
 
 
-def test_cannot_edit_processing_session(client, soniox):
+def test_cannot_edit_processing_session(client, stt):
     up = client.post("/api/upload-transcribe", files={"file": ("x.wav", b"\x00" * 64, "audio/wav")}).json()
     assert client.put(f"/api/sessions/{up['session_id']}/segments", json={"segments": []}).status_code == 409
     assert client.put("/api/sessions/nope/segments", json={"segments": []}).status_code == 404

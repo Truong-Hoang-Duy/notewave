@@ -1,5 +1,6 @@
-import { ArrowDown, ArrowUp, Camera, Eye, GripVertical, UploadCloud, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Camera, Eye, Film, GripVertical, UploadCloud, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { isVideoFile } from '../lib/extractAudioFromVideo'
 import { formatBytes } from '../lib/format'
 import { isPreviewable } from '../lib/files'
 import FilePreviewDialog from './FilePreviewDialog'
@@ -214,11 +215,13 @@ export default function FilePicker({
                 )}
                 {(() => {
                   const canPreview = preview && !disabled && isPreviewable(item.file)
+                  const video = isVideoFile(item.file)
+                  const ItemIcon = video ? Film : FileIcon
                   const thumb = previews.get(item.id) ? (
                     <img src={previews.get(item.id)} alt="" className="size-11 shrink-0 rounded-lg border border-line object-cover" />
                   ) : (
                     <div className={`grid size-11 shrink-0 place-items-center rounded-lg ${fileIconTone}`}>
-                      <FileIcon className="size-5" />
+                      <ItemIcon className="size-5" />
                     </div>
                   )
                   const info = (
@@ -233,12 +236,17 @@ export default function FilePicker({
                               const val = e.target.value
                               onChange(items.map((it) => (it.id === item.id ? { ...it, title: val } : it)))
                             }}
-                            placeholder="Nhập tên phiên ghi âm..."
-                            className="w-full rounded-md border border-line bg-surface px-2.5 py-1 text-sm font-medium text-ink shadow-xs transition-colors hover:border-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                            title="Đặt tên cho phiên ghi âm này"
+                            placeholder="Nhập tên phiên..."
+                            className="w-full rounded-md border border-line bg-surface px-2.5 py-1 text-base font-medium text-ink shadow-xs transition-colors hover:border-muted focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 sm:text-sm"
+                            title="Đặt tên cho phiên này"
                           />
                           <p className="text-[12px] text-muted">
                             <span className="font-mono text-muted/70">{item.file.name}</span> · {formatBytes(item.file.size)}
+                            {video && (
+                              <span className="ml-1.5 inline-flex items-center rounded bg-brand-50 px-1.5 py-0.5 text-[10.5px] font-medium text-brand-700">
+                                Video · tự tách âm thanh
+                              </span>
+                            )}
                             {canPreview && <span className="ml-1.5 text-brand-600 group-hover/file:underline">· xem trước</span>}
                           </p>
                         </div>
@@ -247,6 +255,11 @@ export default function FilePicker({
                           <p className="truncate text-sm font-medium text-ink">{item.file.name}</p>
                           <p className="text-[12.5px] text-muted">
                             {formatBytes(item.file.size)}
+                            {video && (
+                              <span className="ml-1.5 inline-flex items-center rounded bg-brand-50 px-1.5 py-0.5 text-[10.5px] font-medium text-brand-700">
+                                Video · tự tách âm thanh
+                              </span>
+                            )}
                             {canPreview && <span className="ml-1.5 text-brand-600 group-hover/file:underline">· xem trước</span>}
                           </p>
                         </>

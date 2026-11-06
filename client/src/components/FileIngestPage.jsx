@@ -110,10 +110,12 @@ export default function FileIngestPage({ config, onOpenHistory, onOpenSession })
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">{config.heading}</h1>
-        <p className="mt-1.5 text-[15px] leading-relaxed text-muted">{config.description}</p>
+    <div className="mx-auto max-w-3xl space-y-4 sm:space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-card sm:px-5 sm:py-3.5">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg font-semibold tracking-tight text-ink sm:text-xl">{config.heading}</h1>
+          <p className="mt-0.5 text-xs text-muted sm:text-[13.5px]">{config.description}</p>
+        </div>
       </div>
 
       {stage === 'select' && (

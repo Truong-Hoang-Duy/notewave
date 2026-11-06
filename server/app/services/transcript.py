@@ -4,6 +4,57 @@ from typing import Any
 from app.models.session import TranscriptSegment
 
 
+def _normalize_speaker(speaker: Any) -> str | None:
+    if speaker is None or isinstance(speaker, bool):
+        return None
+    if isinstance(speaker, int):
+        return str(speaker + 1)
+    s = str(speaker).strip()
+    return s or None
+
+
+def utterances_to_segments(
+    utterances: Iterable[dict[str, Any]],
+    default_language: str | None = None,
+) -> list[TranscriptSegment]:
+    """Gom các utterance/word liên tiếp cùng người nói (từ Deepgram / Gladia) thành các đoạn TranscriptSegment."""
+    segments: list[TranscriptSegment] = []
+    for item in utterances:
+        text = (item.get("text") or item.get("transcript") or item.get("punctuated_word") or item.get("word") or "").strip()
+        if not text:
+            continue
+        speaker = _normalize_speaker(item.get("speaker"))
+        start_s = item.get("start")
+        end_s = item.get("end")
+        start_ms = (
+            int(item["start_ms"])
+            if item.get("start_ms") is not None
+            else (round(float(start_s) * 1000) if start_s is not None else None)
+        )
+        end_ms = (
+            int(item["end_ms"])
+            if item.get("end_ms") is not None
+            else (round(float(end_s) * 1000) if end_s is not None else None)
+        )
+        language = item.get("language") or default_language
+        current = segments[-1] if segments else None
+        if current is None or current.speaker != speaker:
+            segments.append(
+                TranscriptSegment(
+                    speaker=speaker,
+                    text=text,
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    language=language,
+                )
+            )
+            continue
+        current.text = f"{current.text} {text}"
+        if end_ms is not None:
+            current.end_ms = end_ms
+    return [s for s in segments if s.text]
+
+
 def tokens_to_segments(tokens: Iterable[dict[str, Any]]) -> list[TranscriptSegment]:
     """Gom các token liên tiếp cùng người nói thành một đoạn transcript."""
     segments: list[TranscriptSegment] = []
@@ -13,7 +64,7 @@ def tokens_to_segments(tokens: Iterable[dict[str, Any]]) -> list[TranscriptSegme
             continue
         if text in ("<end>", "<fin>"):
             continue
-        speaker = token.get("speaker")
+        speaker = _normalize_speaker(token.get("speaker"))
         start_ms = token.get("start_ms")
         end_ms = token.get("end_ms")
         current = segments[-1] if segments else None

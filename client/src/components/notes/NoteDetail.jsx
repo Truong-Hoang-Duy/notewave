@@ -8,6 +8,7 @@ import {
   GraduationCap,
   ListTree,
   Loader2,
+  MessageSquareText,
   MoreHorizontal,
   NotebookText,
   Printer,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { refreshNoteLibrary } from '../../hooks/useNoteLibrary'
+import { chatActions } from '../../hooks/useChatStore'
 import { useViewportFit } from '../../hooks/useViewportFit'
 import { clearNoteDraft, readNoteDraft, useNoteAutosave } from '../../hooks/useNoteAutosave'
 import { api } from '../../lib/api'
@@ -624,6 +626,15 @@ function NoteWorkspace({ initialNote, onBack, onDeleted, toast }) {
             isOffline={noteId.startsWith('offline_') || (typeof navigator !== 'undefined' && !navigator.onLine)}
           />
         </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon={MessageSquareText}
+          onClick={() => chatActions.openWithSource({ noteId, title })}
+          title="Mở khung Hỏi đáp AI với ghi chú này đã được chọn sẵn"
+        >
+          <span className="hidden sm:inline">Hỏi AI</span>
+        </Button>
         <Button
           size="sm"
           variant={studyMode ? 'primary' : 'ghost'}

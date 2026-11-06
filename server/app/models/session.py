@@ -60,8 +60,8 @@ class NoteSession(SQLModel, table=True):
     summary_outdated: bool = Field(default=False)
     error_message: str | None = Field(default=None, sa_column=Column(Text, nullable=True))
     original_filename: str | None = Field(default=None, max_length=255)
-    soniox_file_id: str | None = Field(default=None, max_length=64)
-    soniox_transcription_id: str | None = Field(default=None, max_length=64, index=True)
+    stt_file_id: str | None = Field(default=None, max_length=64)
+    stt_transcription_id: str | None = Field(default=None, max_length=64, index=True)
     # Không khai báo ForeignKey ở mức DB để thêm cột được bằng ALTER TABLE trên DB cũ;
     # khi xoá nhóm, router tự gỡ group_id của các phiên.
     group_id: str | None = Field(default=None, max_length=32, index=True)

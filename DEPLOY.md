@@ -11,7 +11,7 @@ Trình duyệt ──HTTPS──> Vercel (frontend React, thư mục client/)
     │                  Render (backend FastAPI, thư mục server/) ──> Supabase (Postgres, qua Transaction pooler)
     │                        │  ▲
     │                        ▼  │ webhook khi xử lý file xong
-    └──WebSocket (temporary key)──> Soniox           OpenAI (tóm tắt, rà soát OCR) · Mistral OCR (quét tài liệu)
+    └──WebSocket (temporary key)──> Deepgram / Gladia   OpenAI (tóm tắt, rà soát OCR) · Mistral OCR (quét tài liệu)
 ```
 
 | Thành phần | Dịch vụ | Gói | Cấu hình trong repo |
@@ -26,7 +26,7 @@ Supabase → GitHub → Render → Vercel → quay lại Render cập nhật COR
 ### Chuẩn bị trước
 
 - [x] Tài khoản: [GitHub](https://github.com), [Supabase](https://supabase.com), [Render](https://render.com), [Vercel](https://vercel.com) — nên đăng nhập Supabase/Render/Vercel **bằng GitHub** cho tiện kết nối repo.
-- [x] `SONIOX_API_KEY` — https://console.soniox.com → API Keys.
+- [x] `DEEPGRAM_API_KEY` (https://console.deepgram.com — tặng $200 miễn phí) và/hoặc `GLADIA_API_KEY` (https://app.gladia.io — miễn phí 10 giờ/tháng).
 - [x] `OPENAI_API_KEY` — https://platform.openai.com/api-keys (tài khoản cần có credit).
 - [ ] `MISTRAL_API_KEY` — https://console.mistral.ai/api-keys (cần bật billing) — cho tab **Quét tài liệu** và nút
       **Vẽ công thức** trong Ghi chú.
@@ -120,7 +120,8 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
 
    | Biến | Giá trị |
    |---|---|
-   | `SONIOX_API_KEY` | key Soniox |
+   | `DEEPGRAM_API_KEY` | key Deepgram (hoặc để trống nếu chỉ dùng Gladia) |
+   | `GLADIA_API_KEY` | key Gladia (hoặc để trống nếu chỉ dùng Deepgram) |
    | `DATABASE_URL` | connection string Transaction pooler ở bước 1 (có `?sslmode=require`) |
    | `ALLOWED_ORIGINS` | tạm thời điền `https://notewave.vercel.app` — sẽ sửa lại ở bước 5 |
    | `OPENAI_API_KEY` | key OpenAI |
@@ -128,9 +129,9 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
    | `SUPABASE_SECRET_KEY` | secret key Supabase (ảnh trong Ghi chú) |
    | `PUBLIC_BASE_URL` | `https://notewave-api.onrender.com` — sẽ kiểm tra lại ở bước 3.7 |
 
-   Các biến còn lại đã có sẵn trong `render.yaml`: `PYTHON_VERSION=3.12.8`, `SUMMARY_MODEL=openai:gpt-5.6-luna`,
-   `OCR_MODEL=mistral-ocr-latest`, `NOTE_ASSETS_BUCKET=note-assets`, `MAX_UPLOAD_MB=0` (0 = không giới hạn), `SONIOX_WEBHOOK_SECRET` (Render
-   tự sinh chuỗi ngẫu nhiên). `SUPABASE_URL` không cần khai báo: backend tự suy ra từ project-ref trong `DATABASE_URL`.
+   Các biến còn lại đã có sẵn trong `render.yaml`: `PYTHON_VERSION=3.12.8`, `STT_PROVIDER=auto`, `DEEPGRAM_MODEL=nova-3`,
+   `SUMMARY_MODEL=openai:gpt-5.6-luna`, `OCR_MODEL=mistral-ocr-latest`, `NOTE_ASSETS_BUCKET=note-assets`, `MAX_UPLOAD_MB=0`
+   (0 = không giới hạn), `STT_WEBHOOK_SECRET` (Render tự sinh chuỗi ngẫu nhiên). `SUPABASE_URL` không cần khai báo: backend tự suy ra từ project-ref trong `DATABASE_URL`.
    Blueprint đã tạo từ trước: tab **Environment** → **Add Environment Variable** `MISTRAL_API_KEY`, `SUPABASE_SECRET_KEY`
    (và `OCR_MODEL`, `NOTE_ASSETS_BUCKET` nếu muốn) → **Save, rebuild, and deploy** (Render không tự thêm biến mới từ
    `render.yaml` vào service đã có). Bucket ảnh (private) được backend **tự tạo** ở lần chèn ảnh đầu tiên — không cần
@@ -149,7 +150,7 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
      (không có `/` cuối) → **Save, rebuild, and deploy**.
 8. Kiểm tra: mở `https://<URL-render>/api/health` → phải thấy
    ```json
-   {"status":"ok","database":"ok","database_error":null,"soniox_configured":true,"ocr_configured":true,"webhook_enabled":true}
+   {"status":"ok","database":"ok","database_error":null,"stt_configured":true,"stt_provider":"deepgram","ocr_configured":true,"note_images_configured":true,"webhook_enabled":true}
    ```
    `"status":"degraded"` + `"database":"error"` = backend chạy nhưng không kết nối được Supabase (xem mục 8).
    Tài liệu API: `https://<URL-render>/docs`.
@@ -172,7 +173,6 @@ Repo hiện chưa có git. Làm ở gốc repo (`D:\Project\notewave`):
      |---|---|
      | `VITE_API_BASE_URL` | URL Render ở bước 3.7, **không có `/` cuối**, vd `https://notewave-api.onrender.com` |
      | `VITE_MAX_UPLOAD_MB` | `0` (0 hoặc để trống = không giới hạn dung lượng) |
-     | `VITE_SONIOX_RT_MODEL` | `stt-rt-v5` (có thể bỏ qua — đây là mặc định) |
 3. Bấm **Deploy**, chờ ~1 phút. Lấy domain chính thức ở **Project → Domains** (vd `https://notewave.vercel.app`).
 
 > Biến `VITE_*` được "đóng gói" vào code lúc build. Mỗi lần sửa biến này trên Vercel phải **Redeploy**
@@ -205,7 +205,7 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 - [x] Mở phiên vừa ghi: **Tóm tắt cuộc họp** ra kết quả; **Xuất file** .txt và .docx mở được, đúng tiếng Việt.
 - [x] **Chỉnh sửa transcript**: xoá 1 đoạn → Lưu → tải lại trang vẫn giữ thay đổi.
 - [x] **Tải file lên**: chọn file mp3/m4a ngắn (1–2 phút) → "Đang chuyển…" → hiện transcript.
-      Render Logs có dòng `POST /api/webhooks/soniox HTTP/1.1" 204` → webhook hoạt động
+      Render Logs có dòng `POST /api/webhooks/stt HTTP/1.1" 204` → webhook hoạt động
       (nếu không có, app vẫn chạy nhờ polling — xem mục 8).
 - [x] **Nhóm & gộp**: tạo nhóm, gán 2 phiên, gộp 2 phiên → phiên gộp có đường phân cách giữa các phần.
 - [ ] **Quét tài liệu**: trên điện thoại bấm **Chụp ảnh tài liệu** rồi **Chụp thêm trang** 2–3 lần (hoặc chọn nhiều
@@ -251,15 +251,15 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | Trình duyệt Console: `blocked by CORS policy` | `ALLOWED_ORIGINS` không khớp domain đang mở (thừa `/`, thiếu `https://`, link preview) | Sửa `ALLOWED_ORIGINS` (mục 5) |
 | Frontend báo "Không kết nối được tới máy chủ", Network tab thấy request tới `notewave.vercel.app/api/...` | Thiếu/sai `VITE_API_BASE_URL` | Sửa biến trên Vercel rồi **Redeploy** |
 | Lần mở đầu tiên chờ lâu 30–60 giây | Render free ngủ sau 15 phút không có request | Dùng dịch vụ ping định kỳ (mỗi 10 phút) vào `https://<backend>/api/health` qua [cron-job.org](https://cron-job.org), UptimeRobot, hoặc GitHub Actions workflow (xem chi tiết bên dưới). Khi tab NoteWave mở, frontend cũng tự heartbeat mỗi 5 phút |
-| Bấm ghi âm báo lỗi khoá tạm thời / `503` ở `/api/temporary-key` | Thiếu/sai `SONIOX_API_KEY` | Kiểm tra `/api/health` → `soniox_configured` phải `true` |
+| Bấm ghi âm báo lỗi khoá tạm thời / `503` ở `/api/temporary-key` | Thiếu/sai `DEEPGRAM_API_KEY` hoặc `GLADIA_API_KEY` | Kiểm tra `/api/health` → `stt_configured` phải `true` |
 | Tóm tắt báo "Không tạo được bản tóm tắt" (502) | Sai `OPENAI_API_KEY`, hết credit, tài khoản chưa được dùng model, hoặc sai `SUMMARY_MODEL` | Xem Render Logs dòng `Tóm tắt thất bại` để biết lỗi cụ thể |
 | Tóm tắt chạy lâu (transcript rất dài) | `gpt-5.6-luna` mặc định bật reasoning | Chấp nhận được (~10 giây/buổi họp ngắn). Cần nhanh hơn: thêm biến `SUMMARY_REASONING_EFFORT=low` trên Render (đổi lại chất lượng việc cần làm kém hơn) |
 | Quét tài liệu báo `503` "Chưa cấu hình MISTRAL_API_KEY" | Thiếu biến trên Render | Thêm `MISTRAL_API_KEY` (mục 3.4) → `/api/health` có `"ocr_configured":true` |
 | Quét tài liệu: phiên chuyển "Lỗi" với "Mistral OCR không xử lý được tài liệu này" | Sai/hết hạn key, chưa bật billing Mistral, hoặc file ảnh/PDF hỏng | Xem Render Logs dòng `OCR thất bại cho session` để biết lỗi cụ thể |
 | Quét tài liệu thành công nhưng có dòng "Chưa rà soát được từ tiếng Anh" | Bước LLM (dùng `SUMMARY_MODEL` + `OPENAI_API_KEY`) lỗi: hết credit, sai key/model | Như dòng lỗi tóm tắt ở trên; nội dung OCR vẫn được giữ, người dùng tự sửa bằng "Chỉnh sửa nội dung" |
 | Quét tài liệu: phiên chuyển "Lỗi" với "bị gián đoạn do máy chủ khởi động lại" | Render restart/deploy lại khi job OCR nền đang chạy (job chạy trong process backend) | Tải tài liệu lên lại; tránh deploy khi đang có người quét tài liệu |
-| Upload xong nhưng Render Logs không có `POST /api/webhooks/soniox` | `PUBLIC_BASE_URL` sai (không trùng URL Render) | Sửa `PUBLIC_BASE_URL` (mục 3.7). App vẫn chạy nhờ polling khi đang mở trang |
-| Upload file lớn báo lỗi / timeout | Mạng yếu hoặc gián đoạn kết nối tới Soniox | Code đã mở không giới hạn dung lượng (`MAX_UPLOAD_MB=0`). Soniox hỗ trợ file audio dài tối đa 5 giờ / file và tổng dung lượng lưu trữ tài khoản là 10GB |
+| Upload xong nhưng Render Logs không có `POST /api/webhooks/stt` | `PUBLIC_BASE_URL` sai (không trùng URL Render) | Sửa `PUBLIC_BASE_URL` (mục 3.7). App vẫn chạy nhờ polling khi đang mở trang |
+| Upload file lớn báo lỗi / timeout | Mạng yếu hoặc gián đoạn kết nối tới Deepgram / Gladia | Code đã mở không giới hạn dung lượng (`MAX_UPLOAD_MB=0`) |
 | Quét nhiều file: phiên xong nhưng có dòng "Không đọc được N file" | Một vài ảnh/PDF hỏng hoặc Mistral lỗi riêng file đó | Các file khác vẫn được giữ; xem Render Logs dòng `OCR thất bại cho file`, tải riêng file lỗi lên lại |
 | Ghi chú: nút chèn ảnh bị mờ / chèn ảnh báo `503` "Chưa cấu hình Supabase Storage" | Thiếu `SUPABASE_SECRET_KEY` | Thêm biến trên Render → `/api/health` có `"note_images_configured":true` |
 | Ghi chú: chèn ảnh báo "Không lưu được ảnh lên kho lưu trữ" (502) | Sai secret key, project Supabase bị tạm dừng, hoặc `SUPABASE_URL` sai (khi khai báo tay) | Xem Render Logs; kiểm tra key ở Project Settings → API Keys; Storage → bucket `note-assets` phải là **Private** |
@@ -276,7 +276,7 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 | **Render Free** | 512MB RAM (NoteWave dùng ~250MB), ngủ sau 15 phút không có request, 750 giờ chạy/tháng cho mỗi workspace |
 | **Supabase Free** | Database 500MB, **Storage 1GB** (ảnh trong Ghi chú — trình duyệt đã nén về WebP ≤ 2000px, thường vài trăm KB/ảnh), tạm dừng sau ~1 tuần không hoạt động, tối đa 2 project free |
 | **Vercel Hobby** | Chỉ dùng cho mục đích cá nhân/phi thương mại |
-| **Soniox, OpenAI, Mistral** | Tính phí theo lượng dùng — đặt giới hạn chi tiêu (usage limit) trong console của từng dịch vụ. Mistral OCR tính theo số trang; mỗi lần quét thêm 1 lần gọi LLM rà soát (PDF dài: nhiều lần, chia theo trang) |
+| **Deepgram, Gladia, OpenAI, Mistral** | Deepgram tặng \$200 miễn phí, Gladia miễn phí 10 giờ/tháng; đặt giới hạn chi tiêu (usage limit) trong console của từng dịch vụ. Mistral OCR tính theo số trang; mỗi lần quét thêm 1 lần gọi LLM rà soát (PDF dài: nhiều lần, chia theo trang) |
 | **Mistral OCR** | Mỗi file tối đa 50MB / 1000 trang. Backend giữ file trong RAM khi xử lý nền — trên Render free (512MB) tránh nhiều người cùng quét PDF lớn một lúc |
 
 ## 10. Checklist bảo mật trước khi chia sẻ link
@@ -286,6 +286,6 @@ Mở domain Vercel trên **Chrome desktop** và **điện thoại** (4G, không 
 - [ ] `SUPABASE_SECRET_KEY` chỉ có trên Render / `.env` local; bucket `note-assets` là **Private** (ảnh chỉ xem được qua
       signed URL ngắn hạn do backend cấp).
 - [x] `ALLOWED_ORIGINS` là domain cụ thể, không phải `*`.
-- [x] Đặt usage limit cho Soniox và OpenAI.
+- [x] Đặt usage limit cho dịch vụ STT và OpenAI.
 - [x] ⚠️ **App chưa có đăng nhập**: ai biết URL frontend/backend đều xem, sửa, xoá được toàn bộ phiên ghi chú và dùng
-      hạn mức Soniox/OpenAI của bạn. Chỉ chia sẻ link cho người tin cậy cho tới khi thêm xác thực người dùng.
+      hạn mức STT/OpenAI của bạn. Chỉ chia sẻ link cho người tin cậy cho tới khi thêm xác thực người dùng.

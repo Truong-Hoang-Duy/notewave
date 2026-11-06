@@ -13,7 +13,13 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
-      - key: SONIOX_API_KEY
+      - key: STT_PROVIDER # auto | deepgram | gladia
+        value: auto
+      - key: DEEPGRAM_API_KEY # https://console.deepgram.com ($200 free credit)
+        sync: false
+      - key: DEEPGRAM_MODEL
+        value: nova-3
+      - key: GLADIA_API_KEY # https://app.gladia.io (10h free/tháng)
         sync: false
       - key: DATABASE_URL # Supabase > Connect > Transaction pooler (cổng 6543, thêm ?sslmode=require)
         sync: false
@@ -31,9 +37,9 @@ services:
         sync: false
       - key: NOTE_ASSETS_BUCKET
         value: note-assets
-      - key: PUBLIC_BASE_URL # vd: https://notewave-api.onrender.com (bật webhook Soniox)
+      - key: PUBLIC_BASE_URL # vd: https://notewave-api.onrender.com (bật webhook STT)
         sync: false
-      - key: SONIOX_WEBHOOK_SECRET
+      - key: STT_WEBHOOK_SECRET
         generateValue: true
       - key: MAX_UPLOAD_MB
         value: "0"

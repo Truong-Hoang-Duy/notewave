@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@soniox/client": "^2.3.0",
     "@tiptap/extension-image": "^3.31.3",
     "@tiptap/extension-list": "^3.31.3",
     "@tiptap/extension-mathematics": "^3.31.3",

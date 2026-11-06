@@ -4,16 +4,20 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.dependencies import DbDep, SettingsDep, SonioxDep, get_group_or_404, get_session_or_404
+from app.config import SttProvider
+from app.dependencies import DbDep, SettingsDep, SttDep, get_group_or_404, get_session_or_404
 from app.models.session import NoteSession, UploadStatus
-from app.services.soniox import SonioxError, SonioxNotConfiguredError
+from app.services.stt import SttError, SttNotConfiguredError
 from app.services.upload_processing import sync_upload_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/upload-transcribe", tags=["upload"])
 
 ALLOWED_EXTENSIONS = {
-    ".aac", ".aiff", ".aif", ".amr", ".asf", ".flac", ".m4a", ".mp3", ".mp4", ".ogg", ".oga", ".opus", ".wav", ".webm",
+    # Định dạng âm thanh (Audio)
+    ".aac", ".aiff", ".aif", ".amr", ".asf", ".flac", ".m4a", ".mp3", ".ogg", ".oga", ".opus", ".wav", ".wma",
+    # Định dạng video (iPhone .mov/.m4v, Windows/macOS .mp4/.mkv/.webm/.avi...)
+    ".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp", ".flv", ".wmv", ".mpeg", ".mpg", ".ts",
 }
 
 
@@ -35,11 +39,12 @@ def _file_size(upload: UploadFile) -> int:
 @router.post("", response_model=UploadAccepted, status_code=202)
 async def upload_and_transcribe(
     db: DbDep,
-    soniox: SonioxDep,
+    stt: SttDep,
     settings: SettingsDep,
     file: UploadFile = File(...),
     title: str | None = Form(default=None, max_length=200),
     group_id: str | None = Form(default=None, max_length=32, description="Gán phiên vào nhóm ngay khi tạo (tải nhiều file)"),
+    provider: SttProvider | None = Form(default=None, description="Chọn dịch vụ STT: deepgram hoặc gladia"),
 ) -> UploadAccepted:
     """Mỗi request = 1 file = 1 phiên. Frontend tải nhiều file bằng nhiều request song song (có giới hạn)."""
     filename = Path(file.filename or "audio").name
@@ -66,16 +71,16 @@ async def upload_and_transcribe(
     )
 
     try:
-        file_id = await soniox.upload_file(filename, file.file, file.content_type)
-        session.soniox_file_id = file_id
-        session.soniox_transcription_id = await soniox.create_transcription(file_id, client_reference_id=session.id)
-    except SonioxNotConfiguredError as exc:
+        file_id = await stt.upload_file(filename, file.file, file.content_type, provider=provider)
+        session.stt_file_id = file_id[:64]
+        session.stt_transcription_id = (await stt.create_transcription(file_id, client_reference_id=session.id))[:64]
+    except SttNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except SonioxError as exc:
-        logger.warning("Upload Soniox thất bại: %s", exc)
-        if session.soniox_file_id:
-            await soniox.delete_file(session.soniox_file_id)
-        raise HTTPException(status_code=502, detail="Không gửi được file tới Soniox. Vui lòng thử lại.") from exc
+    except SttError as exc:
+        logger.warning("Upload STT thất bại: %s", exc)
+        if session.stt_file_id:
+            await stt.delete_file(session.stt_file_id)
+        raise HTTPException(status_code=502, detail="Không gửi được file tới dịch vụ nhận dạng giọng nói. Vui lòng thử lại.") from exc
     finally:
         await file.close()
 
@@ -85,12 +90,12 @@ async def upload_and_transcribe(
 
 
 @router.get("/{session_id}/status", response_model=UploadStatus)
-async def upload_status(session_id: str, db: DbDep, soniox: SonioxDep) -> UploadStatus:
+async def upload_status(session_id: str, db: DbDep, stt: SttDep) -> UploadStatus:
     session = get_session_or_404(db, session_id)
     if session.status == "processing":
         try:
-            session = await sync_upload_session(db, soniox, session)
-        except SonioxError as exc:
-            # Lỗi tạm thời khi hỏi Soniox: vẫn báo "processing" để frontend thử lại lần poll sau.
-            logger.warning("Không kiểm tra được trạng thái Soniox cho %s: %s", session_id, exc)
+            session = await sync_upload_session(db, stt, session)
+        except SttError as exc:
+            # Lỗi tạm thời khi hỏi dịch vụ STT: vẫn báo "processing" để frontend thử lại lần poll sau.
+            logger.warning("Không kiểm tra được trạng thái STT cho %s: %s", session_id, exc)
     return UploadStatus(session_id=session.id, status=session.status, error_message=session.error_message)  # type: ignore[arg-type]

@@ -1169,3 +1169,55 @@
   - `oxlint`: 0 lỗi.
   - `vite build`: OK (bundle sạch, service worker precache chuẩn).
 
+
+
+## [2026-11-06] — Thay thế hoàn toàn STT sang Deepgram & Gladia (miễn phí, có phân biệt người nói)
+- Đã làm:
+  - **Backend (`services/stt.py`, `config.py`, `models/session.py`, `routers/temporary_key.py`, `routers/upload.py`, `routers/webhooks.py`, `services/upload_processing.py`, `services/transcript.py`):**
+    - Hỗ trợ cả **Deepgram (`nova-3`)** và **Gladia (`v2`)**, chọn qua biến môi trường `STT_PROVIDER=auto|deepgram|gladia` (`auto` ưu tiên Deepgram nếu có `DEEPGRAM_API_KEY`, tiếp theo là Gladia nếu có `GLADIA_API_KEY`).
+    - `POST /api/temporary-key?diarize=true|false&provider=deepgram|gladia`: cấp JWT ngắn hạn từ Deepgram (`POST /v1/auth/grant`) hoặc URL WebSocket dùng 1 lần từ Gladia (`POST /v2/live`), trả về `{provider, api_key, ws_url, expires_at}`.
+    - `POST /api/upload-transcribe` (hỗ trợ form field `provider=deepgram|gladia`) & `GET /api/upload-transcribe/{id}/status`: hỗ trợ cả Deepgram (`POST /v1/listen?diarize=true&utterances=true&smart_format=true`) và Gladia (`POST /v2/upload` → `POST /v2/pre-recorded` → `GET /v2/pre-recorded/{id}` → `DELETE /v2/pre-recorded/{id}`).
+    - `utterances_to_segments` chuẩn hoá chỉ số người nói 0-indexed (`0 -> "1"`, `1 -> "2"`) và mốc thời gian sang ms để giữ nguyên định dạng `TranscriptSegment`.
+    - Đổi các trường `NoteSession` sang `stt_file_id` và `stt_transcription_id`; `/api/health` trả `stt_configured`, `stt_provider`, `stt_providers` (danh sách dịch vụ đã có key); xoá toàn bộ code, biến môi trường, route và test cũ của dịch vụ STT trước đây.
+  - **Frontend (`client/src/lib/liveStt.js`, `useSttProvider.js`, `SttProviderToggle.jsx`, `useLiveTranscription.js`, `useQuickDictation.js`, `client/package.json`):**
+    - Viết client WebSocket trực tiếp `liveStt.js` dùng `MediaRecorder` (Deepgram) và Web Audio PCM 16kHz (Gladia), giữ đầy đủ sóng âm (`AnalyserNode`), tạm dừng/tiếp tục, tự kết nối lại và ghi âm nhanh trong Ghi chú Cornell.
+    - Thêm nút bật tắt chọn trực tiếp **Deepgram (`Nova-3`)** hoặc **Gladia (`v2`)** (`SttProviderToggle.jsx` + `useSttProvider.js`, lưu `localStorage` `notewave:stt-provider`, đồng bộ giữa Header, trang Ghi âm trực tiếp, trang Tải file lên và Ghi âm nhanh trong Ghi chú).
+- File/module đã thay đổi: `server/app/config.py`, `server/app/dependencies.py`, `server/app/main.py`, `server/app/models/session.py`, `server/app/services/stt.py` (mới), `server/app/services/transcript.py`, `server/app/services/upload_processing.py`, `server/app/routers/temporary_key.py`, `server/app/routers/upload.py`, `server/app/routers/webhooks.py`, `server/app/routers/sessions.py`, `server/tests/conftest.py`, `server/tests/stt_fake.py` (mới), `server/tests/test_upload_stt.py` (mới), `server/tests/test_groups_merge.py`, `server/tests/test_segments.py`, `server/tests/test_sessions.py`, `client/src/lib/liveStt.js` (mới), `client/src/hooks/useSttProvider.js` (mới), `client/src/components/SttProviderToggle.jsx` (mới), `client/src/lib/api.js`, `client/src/App.jsx`, `client/src/pages/LivePage.jsx`, `client/src/pages/UploadPage.jsx`, `client/src/hooks/useLiveTranscription.js`, `client/src/hooks/useQuickDictation.js`, `client/src/components/SessionDetail.jsx`, `client/package.json`, `.env`, `.env.example`, `render.yaml`, `run-dev.js`, `README.md`, `DEPLOY.md`, `GEMINI.md`, `CLAUDE.md`, `PROGRESS.md`.
+- Đang dang dở / chưa xong: người dùng cần điền `DEEPGRAM_API_KEY` và/hoặc `GLADIA_API_KEY` vào `.env` để chạy thật.
+- Việc cần làm tiếp theo: đăng ký key miễn phí trên Deepgram / Gladia, điền vào `.env` và kiểm thử ghi âm trực tiếp + tải file lên.
+
+## [2026-11-06] — Bổ sung tab Hỏi đáp AI trên Tài liệu & Ghi chú (`#/chat`) + cấu hình STT Tiếng Việt cố định
+- Đã làm:
+  - **Cố định ngôn ngữ Tiếng Việt (`vi`) & WebSocket proxy cho Deepgram (`services/stt.py`, `routers/temporary_key.py`, `client/src/lib/liveStt.js`, `client/vite.config.js`):**
+    - Gladia Live (`/v2/live`) và Pre-recorded (`/v2/pre-recorded`) đặt `languages: ["vi"], code_switching: False`.
+    - Deepgram Live (`/v1/listen`) và Pre-recorded (`/v1/listen`) đặt `language=vi`.
+    - Khi `DEEPGRAM_API_KEY` có quyền `Default` (trả 403 ở `/v1/auth/grant`), backend tự cấp token 1 lần (`dg_proxy_...`) và chuyển tiếp qua WebSocket proxy `/api/live-ws` để giữ kín API key gốc.
+  - **Backend Hỏi đáp AI Agent (`models/chat.py`, `services/chat_agent.py`, `routers/chat.py`, `tests/test_chat.py`):**
+    - Endpoint `POST /api/chat/ask`: nhận `question`, `session_ids` (tuỳ chọn), `note_ids` (tuỳ chọn), `history`. Không bắt buộc phải chọn trước tài liệu.
+    - `doc_chat_agent` (`Agent[ChatDeps, str]`, dùng `SUMMARY_MODEL` `openai:gpt-5.6-luna`): trang bị 4 `@agent.tool` (`list_recent_documents`, `search_user_documents`, `read_session_content`, `read_note_content`) để AI Agent tự động tìm kiếm và đọc các bản ghi âm, tài liệu OCR và ghi chú Cornell trong DB khi người dùng hỏi, đồng thời nhận thêm các tài liệu được đính kèm sẵn. Trả về `{answer_md, used_sources, model}`.
+  - **Frontend Chat AI Agent tối ưu iPhone 11 (`pages/ChatPage.jsx`, `hooks/useChatStore.js`, `App.jsx`, `SessionDetail.jsx`, `NoteDetail.jsx`):**
+    - Bỏ các nút chọn chế độ cứng nhắc và bỏ cảnh báo bắt buộc chọn tài liệu — giao diện phẳng, tự nhiên như ChatGPT/Claude để gõ hoặc nói câu hỏi ngay lập tức.
+    - **Tối ưu đặc biệt cho iPhone 11 (iOS Safari, 375px–414px):**
+      - Khung chat dùng `useViewportFit({ minHeight: 260, mobile: true })` (`h-(--fit-h)`) vừa khít chiều cao màn hình và tự co lại theo `window.visualViewport` khi bàn phím ảo iOS bật lên (không bị cuộn tràn trang ngoài).
+      - Ô nhập `<textarea>` tự giãn chiều cao (1–4 dòng) và ô tìm kiếm dùng `text-base sm:text-sm` (`16px` trên iPhone) để chặn lỗi iOS Safari tự động phóng to (auto-zoom) khi bấm vào ô gõ.
+      - Nút `📎 Tài liệu` và `Lịch sử` mở hộp thoại **bottom-sheet** (`Modal flexBody`) dễ bấm bằng một ngón cái; nút Micro tiếng Việt & nút Gửi kích thước chuẩn `44×44px` (`size-11`); nút **Sao chép** 1 chạm dưới mỗi câu trả lời.
+      - Lưu tạm lịch sử chat trên `localStorage` (`notewave:chat-state`, không tạo bảng DB mới) kèm cơ chế **TTL tự động xoá** (mặc định 24 giờ, tuỳ chọn 2 giờ / 24 giờ / 3 ngày).
+- File/module đã thay đổi: `server/app/models/chat.py` (mới), `server/app/services/chat_agent.py` (mới), `server/app/routers/chat.py` (mới), `server/app/main.py`, `server/app/services/stt.py`, `server/app/routers/temporary_key.py`, `server/tests/test_chat.py` (mới), `client/src/hooks/useChatStore.js` (mới), `client/src/pages/ChatPage.jsx` (mới), `client/src/App.jsx`, `client/src/lib/api.js`, `client/src/lib/liveStt.js`, `client/src/pages/LivePage.jsx`, `client/src/components/SessionDetail.jsx`, `client/src/components/notes/NoteDetail.jsx`, `client/vite.config.js`, `GEMINI.md`, `CLAUDE.md`, `PROGRESS.md`.
+- Đang dang dở / chưa xong: không có.
+- Việc cần làm tiếp theo: chạy `npm run dev` để trải nghiệm hỏi đáp trực tiếp trên các bài giảng và ghi chú.
+
+## [2026-11-06] — Bổ sung tải Video & trích xuất âm thanh ra văn bản (iPhone 11 + Windows + macOS, tối ưu Production Free)
+- Đã làm:
+  - **Trích xuất âm thanh ở trình duyệt (`client/src/lib/extractAudioFromVideo.js`):**
+    - Kiến trúc 3 tầng chạy 100% ở phía trình duyệt để bảo vệ giới hạn **Render Free (512 MB RAM, 0.1 CPU)**:
+      1. **Tầng 1 (Mặc định - Phần cứng trình duyệt):** Dùng `AudioContext.decodeAudioData` + `OfflineAudioContext` giải mã các video `.mov`, `.mp4`, `.m4v`, `.webm` vừa và nhỏ (`≤ 160 MB`) trên iPhone 11 / macOS / Windows và hạ tần số lấy mẫu xuống **WAV 12kHz–16kHz Mono 16-bit PCM** chỉ trong vài giây.
+      2. **Tầng 2 (Cho file `.mkv`, `.avi` từ OBS trên Windows/Mac hoặc video nặng `> 160 MB`):** Tải lười (lazy-load từ CDN khi cần) `@ffmpeg/ffmpeg` WebAssembly, đọc trực tiếp từ `File` qua `WORKERFS` (không nạp cả GB video vào RAM) và nén ra **MP3 16kHz Mono 32kbps** (~14 MB cho 1 giờ bài giảng).
+      3. **Tầng 3 (Dự phòng đám mây):** Nếu trình duyệt chặn WebAudio/WASM và file video nhỏ (`≤ 80 MB`), gửi trực tiếp lên Deepgram/Gladia.
+  - **Giao diện & Hàng đợi tải lên (`client/src/pages/UploadPage.jsx`, `client/src/components/FilePicker.jsx`, `client/src/App.jsx`):**
+    - Mở rộng chọn cả Audio lẫn Video (`audio/*,video/*`, `.mov`, `.mp4`, `.m4v`, `.mkv`, `.webm`, `.avi`, `.3gp`, `.flv`, `.wmv`...).
+    - Hiển thị nhãn `Video · tự tách âm thanh`, thanh tiến trình *"Đang tách âm thanh từ video… X%"*, và huy hiệu báo dung lượng tiết kiệm được (ví dụ: `Đã tách audio: 420 MB → 14 MB`).
+  - **Backend (`server/app/routers/upload.py`, `server/app/services/stt.py`):**
+    - Mở rộng `ALLOWED_EXTENSIONS` lên 25 định dạng audio & video.
+    - Tối ưu `SttService.upload_file` giữ tham chiếu trực tiếp tới `SpooledTemporaryFile` thay vì đọc trước `bytes` vào RAM trong `_pending_uploads`.
+- File/module đã thay đổi: `client/src/lib/extractAudioFromVideo.js` (mới), `client/src/pages/UploadPage.jsx`, `client/src/components/FilePicker.jsx`, `client/src/App.jsx`, `server/app/routers/upload.py`, `server/app/services/stt.py`, `GEMINI.md`, `CLAUDE.md`, `PROGRESS.md`.
+- Đang dang dở / chưa xong: không có.

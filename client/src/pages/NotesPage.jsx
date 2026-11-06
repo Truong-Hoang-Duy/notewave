@@ -491,14 +491,14 @@ export default function NotesPage({ onOpen }) {
       </aside>
 
       <div className="min-w-0 space-y-5">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-card sm:px-5 sm:py-3.5">
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">{heading}</h1>
-            <p className="mt-1 text-[15px] text-muted">
-              {data && !error ? `${data.total} ghi chú${filtering ? ' phù hợp' : ''}` : 'Ghi chú học tập theo phương pháp Cornell'}
+            <h1 className="truncate text-lg font-semibold tracking-tight text-ink sm:text-xl">{heading}</h1>
+            <p className="mt-0.5 text-xs text-muted sm:text-[13.5px]">
+              {data && !error ? `${data.total} ghi chú${filtering ? ' phù hợp' : ''}` : 'Ghi chú học tập Cornell'}
             </p>
           </div>
-          <Button variant="primary" icon={Plus} loading={creating} onClick={createNote}>
+          <Button size="sm" variant="primary" icon={Plus} loading={creating} onClick={createNote}>
             Ghi chú mới
           </Button>
         </div>

@@ -1,5 +1,6 @@
 import { CheckCircle2, Languages, Mic, Pause, Play, RotateCcw, Save, Square, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+import SttProviderToggle from '../components/SttProviderToggle'
 import { useToast } from '../components/Toast'
 import TranscriptView from '../components/TranscriptView'
 import Waveform from '../components/Waveform'
@@ -158,16 +159,20 @@ export default function LivePage({ onOpenSession, onRecordingChange }) {
         <Card className="mx-auto max-w-3xl animate-fade-in overflow-hidden">
           <div className="flex flex-col items-center px-6 pt-12 pb-10 text-center sm:pt-16">
             <RecordButton onClick={live.start} starting={live.status === 'starting'} />
-            <h1 className="mt-8 text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">
+            <h1 className="mt-6 text-xl font-semibold tracking-tight text-ink sm:mt-8 sm:text-2xl">
               {live.status === 'starting' ? 'Đang kết nối…' : 'Sẵn sàng ghi âm'}
             </h1>
-            <p className="mt-2 max-w-md text-[15px] leading-relaxed text-muted">
+            <p className="mt-1 max-w-md text-xs text-muted sm:text-sm">
               {live.status === 'starting'
-                ? 'Đang xin quyền micro và kết nối tới dịch vụ nhận dạng giọng nói.'
-                : 'Bấm nút để bắt đầu. Lời nói sẽ hiện thành văn bản ngay khi bạn nói, như phụ đề trực tiếp.'}
+                ? 'Đang kết nối micro và dịch vụ nhận dạng giọng nói…'
+                : 'Chuyển lời nói thành văn bản trực tiếp theo thời gian thực.'}
             </p>
 
-            <div className="mt-8 w-full max-w-sm">
+            <div className="mt-6">
+              <SttProviderToggle showLabel disabled={live.status === 'starting'} />
+            </div>
+
+            <div className="mt-5 w-full max-w-sm">
               <label htmlFor="session-title" className="sr-only">
                 Tên phiên
               </label>
@@ -190,7 +195,7 @@ export default function LivePage({ onOpenSession, onRecordingChange }) {
           <div className="grid border-t border-line bg-paper/60 text-[13px] text-muted sm:grid-cols-2">
             <div className="flex items-center gap-2.5 px-6 py-3.5">
               <Languages className="size-4 shrink-0 text-brand-600" />
-              Tiếng Việt, tự nhận diện khi đổi ngôn ngữ
+              Ngôn ngữ nhận dạng: Tiếng Việt (vi)
             </div>
             <div className="flex items-center gap-2.5 border-t border-line px-6 py-3.5 sm:border-t-0 sm:border-l">
               <Users className="size-4 shrink-0 text-brand-600" />

@@ -81,7 +81,10 @@ export default defineConfig({
     open: true,
     // Dev local: gọi /api/... sẽ được chuyển tới FastAPI, không cần VITE_API_BASE_URL.
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': {
+        target: 'http://localhost:8000',
+        ws: true,
+      },
     },
   },
 })

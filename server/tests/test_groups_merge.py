@@ -84,7 +84,7 @@ def test_merge_reordered_with_offsets_and_archive(client, make_session):
     assert client.get("/api/sessions").json()["total"] == 2
 
 
-def test_merge_delete_originals_and_validation(client, make_session, soniox):
+def test_merge_delete_originals_and_validation(client, make_session, stt):
     a = make_session("A", segments=[seg("1", "a", 0, 1000)])
     b = make_session("B", segments=[seg("1", "b", 0, 1000)])
 

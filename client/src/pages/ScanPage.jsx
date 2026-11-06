@@ -21,8 +21,7 @@ function validateFile(file) {
 const CONFIG = {
   storageKey: 'notewave:active-scan',
   heading: 'Quét tài liệu',
-  description:
-    'Chụp hoặc tải lên biên bản viết tay, bảng trắng, tài liệu giấy hay file PDF — NoteWave trích xuất nội dung thành văn bản và rà soát các từ tiếng Anh viết sai. Chọn nhiều ảnh/PDF để gộp thành một tài liệu.',
+  description: 'Trích xuất văn bản từ ảnh chụp, bảng trắng, PDF & tự rà soát từ tiếng Anh.',
   accept: `image/*,application/pdf,${ACCEPTED_EXTENSIONS.map((e) => `.${e}`).join(',')}`,
   dropHint: `PDF, JPG, PNG, WEBP… · mỗi file tối đa ${MAX_OCR_MB} MB`,
   validate: validateFile,

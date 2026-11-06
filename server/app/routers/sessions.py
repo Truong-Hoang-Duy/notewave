@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import func, or_
 from sqlmodel import Session, col, select
 
-from app.dependencies import DbDep, SonioxDep, get_group_or_404, get_session_or_404
+from app.dependencies import DbDep, SttDep, get_group_or_404, get_session_or_404
 from app.models.group import AssignGroupRequest, SessionGroup
 from app.models.ocr import CorrectionDecision
 from app.models.session import (
@@ -201,18 +201,18 @@ def restore_session(session_id: str, db: DbDep) -> SessionRead:
 
 
 @router.delete("/{session_id}", status_code=204)
-async def delete_session(session_id: str, db: DbDep, soniox: SonioxDep) -> Response:
+async def delete_session(session_id: str, db: DbDep, stt: SttDep) -> Response:
     session = get_session_or_404(db, session_id)
-    file_id, transcription_id = session.soniox_file_id, session.soniox_transcription_id
+    file_id, transcription_id = session.stt_file_id, session.stt_transcription_id
     was_processing = session.status == "processing"
     db.delete(session)
     db.commit()
     if was_processing:
-        # Phiên bị xoá khi Soniox còn đang xử lý: dọn luôn file/job để không tốn hạn mức lưu trữ.
+        # Phiên bị xoá khi dịch vụ STT còn đang xử lý: dọn luôn file/job để không tốn hạn mức.
         if transcription_id:
-            await soniox.delete_transcription(transcription_id)
+            await stt.delete_transcription(transcription_id, file_id=file_id)
         if file_id:
-            await soniox.delete_file(file_id)
+            await stt.delete_file(file_id)
     return Response(status_code=204)
 
 

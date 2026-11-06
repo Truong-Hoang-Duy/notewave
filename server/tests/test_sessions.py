@@ -105,7 +105,9 @@ def test_summarize_llm_failure_returns_502(client, make_session, monkeypatch):
 
 def test_health(client):
     body = client.get("/api/health").json()
-    assert body["status"] == "ok" and body["soniox_configured"] is True and body["webhook_enabled"] is True
+    assert body["status"] == "ok" and body["stt_configured"] is True
+    assert body["stt_provider"] in ("deepgram", "gladia") and body["webhook_enabled"] is True
+    assert set(body["stt_providers"]) == {"deepgram", "gladia"}
     assert body["ocr_configured"] is True
     assert body["database"] == "ok" and body["database_error"] is None
 

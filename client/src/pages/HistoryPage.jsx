@@ -350,15 +350,15 @@ export default function HistoryPage({ onOpen, onNavigate }) {
 
   return (
     <div className="space-y-5 pb-20">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3 shadow-card sm:px-5 sm:py-3.5">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">{archived ? 'Phiên đã lưu trữ' : 'Lịch sử ghi chú'}</h1>
-          <p className="mt-1 text-[15px] text-muted">
+          <h1 className="text-lg font-semibold tracking-tight text-ink sm:text-xl">{archived ? 'Phiên đã lưu trữ' : 'Lịch sử ghi chú'}</h1>
+          <p className="mt-0.5 text-xs text-muted sm:text-[13.5px]">
             {data && !error
               ? `${data.total} phiên${filtering ? ' phù hợp' : ''}`
               : archived
-                ? 'Các phiên gốc đã được gộp vào phiên khác'
-                : 'Tất cả phiên ghi âm và file đã chuyển thành văn bản'}
+                ? 'Các phiên gốc đã gộp'
+                : 'Toàn bộ bản ghi âm, video & tài liệu đã xử lý'}
           </p>
         </div>
         <div className="flex gap-2">

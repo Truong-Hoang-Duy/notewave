@@ -77,7 +77,7 @@ if (!existsSync(pythonExe)) {
 }
 if (!existsSync(path.join(ROOT, '.env'))) {
   copyFileSync(path.join(ROOT, '.env.example'), path.join(ROOT, '.env'))
-  warn('📝 Đã tạo .env từ .env.example — nhớ điền SONIOX_API_KEY, OPENAI_API_KEY và MISTRAL_API_KEY để dùng ghi âm / tóm tắt / quét tài liệu.')
+  warn('📝 Đã tạo .env từ .env.example — nhớ điền DEEPGRAM_API_KEY (hoặc GLADIA_API_KEY), OPENAI_API_KEY và MISTRAL_API_KEY để dùng ghi âm / tóm tắt / quét tài liệu.')
 }
 
 // ---- 2. DATABASE_URL (Supabase thật, dùng chung với production) ----

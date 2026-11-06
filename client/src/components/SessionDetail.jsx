@@ -8,6 +8,7 @@ import {
   Download,
   FileText,
   Layers,
+  MessageSquareText,
   PenLine,
   Pencil,
   SpellCheck,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { groupActions } from '../hooks/useGroups'
+import { chatActions } from '../hooks/useChatStore'
 import { useScrolled } from '../hooks/useScrolled'
 import { useUploadStatus } from '../hooks/useUploadStatus'
 import { useViewportFit } from '../hooks/useViewportFit'
@@ -487,6 +489,13 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
             <Button icon={PenLine} onClick={() => setEditing(true)}>
               {isOcr ? 'Chỉnh sửa nội dung' : 'Chỉnh sửa transcript'}
             </Button>
+            <Button
+              variant="secondary"
+              icon={MessageSquareText}
+              onClick={() => chatActions.openWithSource({ sessionId: session.id, title: session.title })}
+            >
+              Hỏi AI
+            </Button>
             <ExportMenu onExport={exportAs} exporting={exporting} />
             <Button
               variant="ghost"
@@ -537,7 +546,7 @@ export default function SessionDetail({ sessionId, onBack, onDeleted, onOpenSess
 
       {session.status === 'failed' && (
         <Card>
-          <ErrorState title="Không xử lý được file" message={session.error_message || 'Soniox không thể chuyển file này thành văn bản.'}>
+          <ErrorState title="Không xử lý được file" message={session.error_message || 'Không thể chuyển file này thành văn bản.'}>
             <Button variant="danger-ghost" icon={Trash2} onClick={() => setConfirmDelete(true)}>
               Xoá phiên
             </Button>

@@ -1,34 +1,15 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, ApiError } from '../lib/api'
 import {
   AudioDeviceError,
   AudioPermissionError,
   AudioUnavailableError,
   AuthError,
-  MicrophoneSource,
-  NetworkError,
   ConnectionError,
+  createLiveRecording,
   QuotaError,
-  SonioxClient,
-} from '@soniox/client'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError } from '../lib/api'
+} from '../lib/liveStt'
 import { appendTokens, cleanSegments, tokensToSegments } from '../lib/segments'
-
-const RT_MODEL = import.meta.env.VITE_SONIOX_RT_MODEL || 'stt-rt-v5'
-
-/**
- * MicrophoneSource của SDK không công khai MediaStream; lớp con này lấy stream sau khi
- * start() để vẽ sóng âm bằng AnalyserNode mà không phải xin quyền micro lần hai.
- */
-class VisualizedMicSource extends MicrophoneSource {
-  constructor(onStream) {
-    super()
-    this.onStream = onStream
-  }
-  async start(handlers) {
-    await super.start(handlers)
-    if (this.stream) this.onStream(this.stream)
-  }
-}
 
 function describeError(err) {
   const chain = []
@@ -41,9 +22,9 @@ function describeError(err) {
     return 'Trình duyệt này không hỗ trợ ghi âm. Hãy dùng Chrome, Edge, Safari hoặc Firefox bản mới (trang phải chạy qua HTTPS).'
   const apiErr = chain.find((e) => e instanceof ApiError)
   if (apiErr) return apiErr.message
-  if (is(AuthError)) return 'Khoá truy cập Soniox không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.'
-  if (is(QuotaError)) return 'Tài khoản Soniox đã hết hạn mức sử dụng.'
-  if (is(NetworkError) || is(ConnectionError)) return 'Mất kết nối tới dịch vụ nhận dạng giọng nói. Kiểm tra mạng rồi thử lại.'
+  if (is(AuthError)) return 'Khoá kết nối tạm thời không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.'
+  if (is(QuotaError)) return 'Tài khoản dịch vụ nhận dạng giọng nói đã hết hạn mức sử dụng.'
+  if (is(ConnectionError)) return 'Mất kết nối tới dịch vụ nhận dạng giọng nói. Kiểm tra mạng rồi thử lại.'
   return err?.message ? `Đã xảy ra lỗi: ${err.message}` : 'Đã xảy ra lỗi không xác định.'
 }
 
@@ -59,7 +40,6 @@ export function useLiveTranscription() {
   const [elapsedMs, setElapsedMs] = useState(0)
   const [analyser, setAnalyser] = useState(null)
 
-  const clientRef = useRef(null)
   const recordingRef = useRef(null)
   const segmentsRef = useRef([])
   const interimTokensRef = useRef([])
@@ -68,18 +48,6 @@ export function useLiveTranscription() {
   const audioCtxRef = useRef(null)
   const wakeLockRef = useRef(null)
   const timerRef = useRef({ startedAt: 0, accumulated: 0, running: false, interval: null })
-
-  const getClient = () => {
-    if (!clientRef.current) {
-      clientRef.current = new SonioxClient({
-        config: async () => {
-          const { api_key } = await api.getTemporaryKey()
-          return { api_key }
-        },
-      })
-    }
-    return clientRef.current
-  }
 
   // ---- Đồng hồ (tính theo thời gian thực, trừ khoảng tạm dừng) ----
   const timerNow = () => {
@@ -145,69 +113,59 @@ export function useLiveTranscription() {
     timerReset()
     setStatus('starting')
 
-    const recording = getClient().realtime.record({
-      model: RT_MODEL,
-      source: new VisualizedMicSource(handleStream),
-      enable_speaker_diarization: true,
-      enable_language_identification: true,
-      language_hints: ['vi', 'en'],
-      enable_endpoint_detection: true,
-      auto_reconnect: true,
-      max_reconnect_attempts: 5,
+    const recording = createLiveRecording({
+      getConfig: () => api.getTemporaryKey({ diarize: true }),
+      onStream: handleStream,
+      maxReconnectAttempts: 5,
+      onResult: (result) => {
+        const finals = []
+        const nonFinals = []
+        for (const t of result.tokens) (t.is_final ? finals : nonFinals).push(t)
+        if (finals.length) {
+          segmentsRef.current = appendTokens(segmentsRef.current, finals, offsetRef.current)
+          setSegments(segmentsRef.current)
+        }
+        interimTokensRef.current = nonFinals
+        setInterim(tokensToSegments(nonFinals, offsetRef.current))
+      },
+      onSessionRestart: () => {
+        sessionCountRef.current += 1
+        if (sessionCountRef.current > 1) {
+          // Sau khi kết nối lại, mốc thời gian của phiên WebSocket bắt đầu lại từ 0 — cộng dồn để không bị lùi.
+          const last = segmentsRef.current[segmentsRef.current.length - 1]
+          offsetRef.current = last?.end_ms ?? Math.round(timerNow())
+        }
+        interimTokensRef.current = []
+        setInterim([])
+      },
+      onStateChange: ({ new_state }) => {
+        if (new_state === 'recording') {
+          setStatus('recording')
+          setWarning(null)
+          timerStart()
+        } else if (new_state === 'paused') {
+          setStatus('paused')
+          timerPause()
+        } else if (new_state === 'reconnecting') {
+          setStatus('reconnecting')
+          setWarning('Mất kết nối — đang thử kết nối lại…')
+        } else if (new_state === 'stopping') {
+          setStatus('stopping')
+          timerPause()
+        }
+      },
+      onMuted: () => setWarning('Micro đang bị tắt tiếng từ hệ thống hoặc thiết bị.'),
+      onUnmuted: () => setWarning(null),
+      onError: (err) => {
+        timerPause()
+        releaseMedia()
+        recordingRef.current = null
+        setError(describeError(err))
+        // Giữ lại phần transcript đã có để người dùng vẫn lưu được.
+        setStatus(segmentsRef.current.length ? 'stopped' : 'error')
+      },
     })
     recordingRef.current = recording
-
-    recording.on('result', (result) => {
-      const finals = []
-      const nonFinals = []
-      for (const t of result.tokens) (t.is_final ? finals : nonFinals).push(t)
-      if (finals.length) {
-        segmentsRef.current = appendTokens(segmentsRef.current, finals, offsetRef.current)
-        setSegments(segmentsRef.current)
-      }
-      interimTokensRef.current = nonFinals
-      setInterim(tokensToSegments(nonFinals, offsetRef.current))
-    })
-
-    recording.on('session_restart', () => {
-      sessionCountRef.current += 1
-      if (sessionCountRef.current > 1) {
-        // Sau khi kết nối lại, mốc thời gian của Soniox bắt đầu lại từ 0 — cộng dồn để không bị lùi.
-        const last = segmentsRef.current[segmentsRef.current.length - 1]
-        offsetRef.current = last?.end_ms ?? Math.round(timerNow())
-      }
-      interimTokensRef.current = []
-      setInterim([])
-    })
-
-    recording.on('state_change', ({ new_state }) => {
-      if (new_state === 'recording') {
-        setStatus('recording')
-        setWarning(null)
-        timerStart()
-      } else if (new_state === 'paused') {
-        setStatus('paused')
-        timerPause()
-      } else if (new_state === 'reconnecting') {
-        setStatus('reconnecting')
-        setWarning('Mất kết nối — đang thử kết nối lại…')
-      } else if (new_state === 'stopping') {
-        setStatus('stopping')
-        timerPause()
-      }
-    })
-
-    recording.on('source_muted', () => setWarning('Micro đang bị tắt tiếng từ hệ thống hoặc thiết bị.'))
-    recording.on('source_unmuted', () => setWarning(null))
-
-    recording.on('error', (err) => {
-      timerPause()
-      releaseMedia()
-      recordingRef.current = null
-      setError(describeError(err))
-      // Giữ lại phần transcript đã có để người dùng vẫn lưu được.
-      setStatus(segmentsRef.current.length ? 'stopped' : 'error')
-    })
 
     try {
       wakeLockRef.current = await navigator.wakeLock?.request('screen')
