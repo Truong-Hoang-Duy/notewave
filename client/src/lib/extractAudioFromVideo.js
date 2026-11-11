@@ -12,7 +12,7 @@
  *    đọc trực tiếp từ File qua `WORKERFS` (không nạp cả GB video vào RAM) và nén ra MP3 Mono 16kHz 32kbps
  *    (1 giờ bài giảng chỉ nặng ~14 MB).
  * 3. Tầng 3 (Dự phòng đám mây):
- *    Nếu trình duyệt chặn WebAudio/WASM và file video nhỏ, gửi trực tiếp lên Deepgram/Gladia.
+ *    Nếu trình duyệt chặn WebAudio/WASM và file video nhỏ, gửi trực tiếp lên Deepgram.
  */
 
 export const AUDIO_EXTENSIONS = [
@@ -348,7 +348,7 @@ export async function prepareMediaForUpload(file, { onProgress } = {}) {
       }
     }
 
-    // 4. Tầng 3 (Dự phòng đám mây): Nếu video nhỏ (<= 80MB), gửi thẳng lên Deepgram/Gladia để tách trên cloud
+    // 4. Tầng 3 (Dự phòng đám mây): Nếu video nhỏ (<= 80MB), gửi thẳng lên Deepgram để tách trên cloud
     if (file.size <= 80 * 1024 * 1024) {
       return {
         file,

@@ -6,7 +6,7 @@ const CONTROL_TOKENS = new Set(['<end>', '<fin>'])
 
 /**
  * Hook "Ghi âm nhanh" trong ghi chú Cornell (GĐ5):
- * - Dùng WebSocket Realtime (Deepgram hoặc Gladia) với khoá tạm thời lấy từ backend.
+ * - Dùng WebSocket Realtime (Deepgram Nova-3) với khoá tạm thời lấy từ backend.
  * - Nhận dạng trực tiếp tiếng Việt và tiếng Anh (không diarization để giảm tối đa độ trễ).
  * - Kết quả hoàn tất (final tokens) được chèn thẳng vào vị trí con trỏ trong editor Tiptap.
  */

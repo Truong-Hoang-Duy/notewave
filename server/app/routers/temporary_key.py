@@ -1,12 +1,11 @@
 import asyncio
 from datetime import datetime
-from typing import Literal
 
 import websockets
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from app.config import SttProvider, get_settings
+from app.config import get_settings
 from app.dependencies import SttDep
 from app.services.stt import (
     SttError,
@@ -19,7 +18,6 @@ router = APIRouter(prefix="/api", tags=["realtime"])
 
 
 class TemporaryKeyResponse(BaseModel):
-    provider: Literal["deepgram", "gladia"]
     api_key: str
     ws_url: str
     expires_at: datetime
@@ -29,20 +27,18 @@ class TemporaryKeyResponse(BaseModel):
 async def create_temporary_key(
     stt: SttDep,
     diarize: bool = Query(default=True, description="Bật phân biệt người nói cho phiên live"),
-    provider: SttProvider | None = Query(default=None, description="Chọn dịch vụ STT: deepgram hoặc gladia"),
 ) -> TemporaryKeyResponse:
-    """Cấp khoá/URL phiên tạm thời ngắn hạn cho trình duyệt kết nối WebSocket (Deepgram hoặc Gladia).
+    """Cấp khoá/URL phiên tạm thời ngắn hạn cho trình duyệt kết nối WebSocket Deepgram.
 
-    Không bao giờ trả API key gốc về client.
+    Không bao giờ trả DEEPGRAM_API_KEY gốc về client.
     """
     try:
-        data = await stt.create_temporary_key(diarize=diarize, provider=provider)
+        data = await stt.create_temporary_key(diarize=diarize)
     except SttNotConfiguredError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except SttError as exc:
         raise HTTPException(status_code=502, detail="Không tạo được phiên kết nối trực tiếp tới dịch vụ nhận dạng giọng nói.") from exc
     return TemporaryKeyResponse(
-        provider=data["provider"],
         api_key=data["api_key"],
         ws_url=data["ws_url"],
         expires_at=data["expires_at"],

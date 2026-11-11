@@ -12,6 +12,7 @@ from app.dependencies import DbDep, SttDep, get_group_or_404, get_session_or_404
 from app.models.group import AssignGroupRequest, SessionGroup
 from app.models.ocr import CorrectionDecision
 from app.models.session import (
+    BatchExportRequest,
     MergeRequest,
     NoteSession,
     SegmentsUpdate,
@@ -24,7 +25,7 @@ from app.models.session import (
     SessionUpdate,
 )
 from app.models.summary import MeetingSummary
-from app.services.export import build_docx, build_txt
+from app.services.export import build_docx, build_txt, build_zip, safe_filename_stem
 from app.services.merge import merge_sessions
 from app.services.ocr_processing import CorrectionDecisionError, decide_corrections
 from app.services.summary_agent import summarize_transcript
@@ -149,6 +150,38 @@ def assign_group(payload: AssignGroupRequest, db: DbDep) -> SessionList:
     for s in sessions:
         db.refresh(s)
     return SessionList(items=[SessionListItem.from_db(s, group) for s in sessions], total=len(sessions))
+
+
+@router.post("/export-zip")
+def export_sessions_zip(payload: BatchExportRequest, db: DbDep) -> Response:
+    """Tải hàng loạt nhiều phiên tài liệu trong một thư mục nén (.zip)."""
+    ordered_ids = list(dict.fromkeys(payload.session_ids))
+    rows = db.exec(select(NoteSession).where(col(NoteSession.id).in_(ordered_ids))).all()
+    by_id = {r.id: r for r in rows}
+    if len(by_id) != len(ordered_ids):
+        raise HTTPException(status_code=404, detail="Có phiên không tồn tại hoặc đã bị xoá.")
+
+    ordered = [by_id[sid] for sid in ordered_ids]
+    not_ready = [s.title for s in ordered if s.status != "completed"]
+    if not_ready:
+        raise HTTPException(status_code=409, detail=f"Chỉ tải xuống được phiên đã xử lý hoàn tất: {', '.join(not_ready)}.")
+
+    group_ids = {s.group_id for s in ordered if s.group_id}
+    groups = {g.id: g for g in db.exec(select(SessionGroup).where(col(SessionGroup.id).in_(group_ids))).all()} if group_ids else {}
+    reads = [SessionRead.from_db(s, groups.get(s.group_id or "")) for s in ordered]
+
+    now = datetime.now(DISPLAY_TZ)
+    if len(group_ids) == 1 and all(s.group_id for s in ordered) and groups:
+        group_name = next(iter(groups.values())).name
+        archive_stem = safe_filename_stem(f"NoteWave - {group_name} - {now:%d-%m-%Y}")
+    else:
+        archive_stem = safe_filename_stem(f"NoteWave - Tai lieu ({len(reads)} phien) - {now:%d-%m-%Y}")
+
+    content = build_zip(reads, format=payload.format, folder_name=archive_stem)
+    filename = f"{archive_stem}.zip"
+    ascii_fallback = f"notewave-export-{now:%Y%m%d-%H%M}.zip"
+    disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
+    return Response(content=content, media_type="application/zip", headers={"Content-Disposition": disposition})
 
 
 @router.get("/{session_id}", response_model=SessionRead)

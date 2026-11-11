@@ -125,6 +125,14 @@ class MergeRequest(BaseModel):
     delete_originals: bool = False
 
 
+BatchExportFormat = Literal["txt", "docx", "both"]
+
+
+class BatchExportRequest(BaseModel):
+    session_ids: list[str] = PydanticField(min_length=1, max_length=200)
+    format: BatchExportFormat = "docx"
+
+
 class SessionListItem(BaseModel):
     id: str
     title: str

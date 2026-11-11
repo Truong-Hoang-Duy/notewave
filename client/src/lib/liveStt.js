@@ -1,7 +1,13 @@
 /**
- * Client WebSocket nhận dạng giọng nói trực tiếp (Deepgram & Gladia) chạy trên trình duyệt.
- * Không cần SDK ngoài: dùng MediaRecorder (Deepgram) hoặc Web Audio PCM 16kHz (Gladia).
+ * Client WebSocket nhận dạng giọng nói trực tiếp (Deepgram Nova-3) chạy trên trình duyệt.
+ * Không cần SDK ngoài: dùng MediaRecorder kết nối trực tiếp tới Deepgram (hoặc qua WS proxy của backend).
  */
+
+try {
+  localStorage.removeItem('notewave:stt-provider')
+} catch {
+  /* localStorage bị chặn */
+}
 
 export class AudioPermissionError extends Error {
   constructor(message = 'Chưa cấp quyền dùng micro.') {
@@ -58,38 +64,6 @@ function pickMimeType() {
     if (MediaRecorder.isTypeSupported?.(type)) return type
   }
   return ''
-}
-
-/** Downsample mảng Float32 (-1..1) từ `inputRate` về PCM 16-bit 16000Hz mono (cho Gladia Live). */
-function floatTo16kHzPcm16(input, inputRate) {
-  const targetRate = 16000
-  if (inputRate === targetRate) {
-    const out = new Int16Array(input.length)
-    for (let i = 0; i < input.length; i++) {
-      const s = Math.max(-1, Math.min(1, input[i]))
-      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-    }
-    return out
-  }
-  const ratio = inputRate / targetRate
-  const newLength = Math.round(input.length / ratio)
-  const out = new Int16Array(newLength)
-  let offsetResult = 0
-  let offsetBuffer = 0
-  while (offsetResult < out.length) {
-    const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio)
-    let accum = 0
-    let count = 0
-    for (let i = offsetBuffer; i < nextOffsetBuffer && i < input.length; i++) {
-      accum += input[i]
-      count++
-    }
-    const sample = count > 0 ? Math.max(-1, Math.min(1, accum / count)) : 0
-    out[offsetResult] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-    offsetResult++
-    offsetBuffer = nextOffsetBuffer
-  }
-  return out
 }
 
 async function acquireMicStream() {
@@ -160,31 +134,6 @@ function parseDeepgramMessage(raw, onResult) {
   onResult?.({ tokens })
 }
 
-function parseGladiaMessage(raw, onResult) {
-  let msg
-  try {
-    msg = JSON.parse(raw)
-  } catch {
-    return
-  }
-  if (msg.type !== 'transcript' || !msg.data?.utterance) return
-  const u = msg.data.utterance
-  const text = (u.text || '').trim()
-  if (!text) return
-  const isFinal = Boolean(msg.data.is_final)
-  const tokens = [
-    {
-      text: ' ' + text,
-      speaker: u.speaker != null ? String(Number(u.speaker) + 1) : null,
-      start_ms: u.start != null ? Math.round(u.start * 1000) : null,
-      end_ms: u.end != null ? Math.round(u.end * 1000) : null,
-      language: u.language || 'vi',
-      is_final: isFinal,
-    },
-  ]
-  onResult?.({ tokens })
-}
-
 function resolveWsUrl(rawUrl) {
   if (!rawUrl) return ''
   if (rawUrl.startsWith('ws://') || rawUrl.startsWith('wss://')) return rawUrl
@@ -194,9 +143,9 @@ function resolveWsUrl(rawUrl) {
 }
 
 /**
- * Khởi tạo một phiên ghi âm trực tiếp qua WebSocket (Deepgram hoặc Gladia).
+ * Khởi tạo một phiên ghi âm trực tiếp qua WebSocket (Deepgram).
  * @param {object} options
- * @param {() => Promise<{ provider: 'deepgram'|'gladia', api_key: string, ws_url: string }>} options.getConfig
+ * @param {() => Promise<{ api_key: string, ws_url: string }>} options.getConfig
  * @param {(stream: MediaStream) => void} [options.onStream]
  * @param {(result: { tokens: Array }) => void} [options.onResult]
  * @param {(state: { new_state: string }) => void} [options.onStateChange]
@@ -220,14 +169,12 @@ export function createLiveRecording({
   let stream = null
   let ws = null
   let recorder = null
-  let pcmCleanup = null
   let keepAliveTimer = null
   let paused = false
   let stopping = false
   let cancelled = false
   let reconnectCount = 0
   let reconnectTimer = null
-  let currentProvider = null
 
   const setState = (new_state) => {
     if (!cancelled) onStateChange?.({ new_state })
@@ -245,10 +192,6 @@ export function createLiveRecording({
         /* ignore */
       }
       recorder = null
-    }
-    if (pcmCleanup) {
-      pcmCleanup()
-      pcmCleanup = null
     }
   }
 
@@ -294,34 +237,6 @@ export function createLiveRecording({
     }, 8000)
   }
 
-  const startGladiaCapture = () => {
-    const Ctx = window.AudioContext || window.webkitAudioContext
-    const ctx = new Ctx()
-    const source = ctx.createMediaStreamSource(stream)
-    const processor = ctx.createScriptProcessor(4096, 1, 1)
-    const silent = ctx.createGain()
-    silent.gain.value = 0
-    processor.onaudioprocess = (e) => {
-      if (paused || ws?.readyState !== WebSocket.OPEN) return
-      const input = e.inputBuffer.getChannelData(0)
-      const pcm16 = floatTo16kHzPcm16(input, ctx.sampleRate)
-      ws.send(pcm16.buffer)
-    }
-    source.connect(processor)
-    processor.connect(silent)
-    silent.connect(ctx.destination)
-    pcmCleanup = () => {
-      try {
-        processor.disconnect()
-        source.disconnect()
-        silent.disconnect()
-        ctx.close().catch(() => {})
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
   const connectSocket = async (isReconnect = false) => {
     let cfg
     try {
@@ -333,14 +248,10 @@ export function createLiveRecording({
     }
     if (cancelled || stopping) return
 
-    currentProvider = cfg.provider || 'deepgram'
     const wsUrl = resolveWsUrl(cfg.ws_url)
     const isBackendProxy = Boolean(cfg.ws_url?.startsWith('/api/'))
     try {
-      ws =
-        currentProvider === 'deepgram' && !isBackendProxy
-          ? new WebSocket(wsUrl, ['bearer', cfg.api_key])
-          : new WebSocket(wsUrl)
+      ws = !isBackendProxy && cfg.api_key ? new WebSocket(wsUrl, ['bearer', cfg.api_key]) : new WebSocket(wsUrl)
     } catch (err) {
       releaseAll()
       onError?.(new ConnectionError(err?.message))
@@ -353,8 +264,7 @@ export function createLiveRecording({
       onSessionRestart?.()
       clearAudioCapture()
       try {
-        if (currentProvider === 'deepgram') startDeepgramCapture()
-        else startGladiaCapture()
+        startDeepgramCapture()
       } catch (err) {
         releaseAll()
         onError?.(new AudioDeviceError(err?.message))
@@ -366,8 +276,7 @@ export function createLiveRecording({
     ws.onmessage = (event) => {
       if (cancelled) return
       if (typeof event.data !== 'string') return
-      if (currentProvider === 'deepgram') parseDeepgramMessage(event.data, onResult)
-      else parseGladiaMessage(event.data, onResult)
+      parseDeepgramMessage(event.data, onResult)
     }
 
     ws.onerror = () => {
@@ -454,8 +363,7 @@ export function createLiveRecording({
             resolve()
           }
           try {
-            if (currentProvider === 'deepgram') ws.send(JSON.stringify({ type: 'CloseStream' }))
-            else ws.send(JSON.stringify({ type: 'stop_recording' }))
+            ws.send(JSON.stringify({ type: 'CloseStream' }))
           } catch {
             clearTimeout(timeout)
             resolve()
@@ -471,4 +379,3 @@ export function createLiveRecording({
     },
   }
 }
-

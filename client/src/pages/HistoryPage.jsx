@@ -4,7 +4,10 @@ import {
   Check,
   ChevronRight,
   Clock,
+  Download,
   FileAudio,
+  FileText,
+  FolderArchive,
   FolderInput,
   FolderOpen,
   History,
@@ -242,6 +245,67 @@ function AssignMenu({ onAssign, busy }) {
   )
 }
 
+function BatchDownloadMenu({ onDownload, busy, disabled }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e) => !ref.current?.contains(e.target) && setOpen(false)
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [open])
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        size="sm"
+        variant="inverse"
+        icon={Download}
+        loading={busy}
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={disabled ? 'Chọn ít nhất 1 phiên đã xử lý hoàn tất để tải về' : 'Tải các phiên đã chọn về file nén .zip'}
+      >
+        <span className="sm:hidden">ZIP</span>
+        <span className="hidden sm:inline">Tải ZIP</span>
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute bottom-full left-0 mb-3 w-60 animate-slide-up rounded-xl border border-line bg-surface p-1.5 text-ink shadow-float sm:left-1/2 sm:-translate-x-1/2"
+        >
+          <p className="px-2.5 pt-1.5 pb-1 text-[11px] font-semibold tracking-wide text-muted uppercase">
+            Nén vào 1 thư mục .zip
+          </p>
+          {[
+            ['docx', 'Word (.docx)', 'Có định dạng, dễ chỉnh sửa', FileText],
+            ['txt', 'Văn bản (.txt)', 'Nhẹ, mở được ở mọi nơi', FileText],
+            ['both', 'Cả hai (.docx + .txt)', 'Đầy đủ cả 2 định dạng mỗi phiên', FolderArchive],
+          ].map(([format, label, hint, Icon]) => (
+            <button
+              key={format}
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                onDownload(format)
+              }}
+              className="flex w-full cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-paper"
+            >
+              <Icon className="mt-0.5 size-4 shrink-0 text-brand-600" />
+              <span>
+                <span className="block text-sm font-medium text-ink">{label}</span>
+                <span className="block text-xs text-muted">{hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function HistoryPage({ onOpen, onNavigate }) {
   const toast = useToast()
   const [query, setQuery] = useState('')
@@ -257,6 +321,7 @@ export default function HistoryPage({ onOpen, onNavigate }) {
   const [managerOpen, setManagerOpen] = useState(false)
   const [mergeOpen, setMergeOpen] = useState(false)
   const [assigning, setAssigning] = useState(false)
+  const [downloadingZip, setDownloadingZip] = useState(false)
   const [restoringId, setRestoringId] = useState(null)
   const { groups } = useGroups()
   const debouncedQuery = useDebounced(query.trim())
@@ -307,6 +372,8 @@ export default function HistoryPage({ onOpen, onNavigate }) {
   const filtering = Boolean(debouncedQuery || source || groupId)
   const items = useMemo(() => data?.items ?? [], [data])
   const selectedItems = [...selected.values()]
+  const completedSelected = selectedItems.filter((i) => i.status === 'completed')
+  const canDownload = completedSelected.length >= 1
   const canMerge = selectedItems.length >= 2 && selectedItems.every((i) => i.status === 'completed')
   const allVisibleSelected = items.length > 0 && items.every((i) => selected.has(i.id))
 
@@ -345,6 +412,25 @@ export default function HistoryPage({ onOpen, onNavigate }) {
       toast.error(err.message)
     } finally {
       setRestoringId(null)
+    }
+  }
+
+  const downloadZip = async (format) => {
+    if (!completedSelected.length) return
+    setDownloadingZip(true)
+    try {
+      const ids = completedSelected.map((i) => i.id)
+      await api.exportSessionsZip(ids, format)
+      const skipped = selectedItems.length - ids.length
+      toast.success(
+        skipped > 0
+          ? `Đã nén và tải xuống ${ids.length} phiên (bỏ qua ${skipped} phiên chưa hoàn tất).`
+          : `Đã nén và tải xuống ${ids.length} phiên (.zip).`,
+      )
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setDownloadingZip(false)
     }
   }
 
@@ -440,7 +526,7 @@ export default function HistoryPage({ onOpen, onNavigate }) {
         {!archived && items.length > 0 && !error && (
           <div className="flex items-center border-b border-line bg-paper/50 pr-4 pl-1.5 text-[13px] text-muted sm:pl-2">
             <Checkbox checked={allVisibleSelected} onChange={toggleAll} label="Chọn tất cả phiên đang hiển thị" />
-            <span className="pl-1">{selected.size ? `Đã chọn ${selected.size} phiên` : 'Chọn nhiều phiên để gộp hoặc gán nhóm'}</span>
+            <span className="pl-1">{selected.size ? `Đã chọn ${selected.size} phiên` : 'Chọn nhiều phiên để tải về (.zip), gộp hoặc gán nhóm'}</span>
           </div>
         )}
         {error ? (
@@ -502,7 +588,8 @@ export default function HistoryPage({ onOpen, onNavigate }) {
       {selected.size > 0 && (
         <div className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 md:bottom-6">
           <div role="toolbar" aria-label="Thao tác với phiên đã chọn" className="flex animate-slide-up items-center gap-1 rounded-2xl bg-ink py-1.5 pr-1.5 pl-4 text-white shadow-float">
-            <span className="mr-2 text-sm font-medium whitespace-nowrap tabular-nums">{selected.size} đã chọn</span>
+            <span className="mr-1.5 text-sm font-medium whitespace-nowrap tabular-nums sm:mr-2">{selected.size} đã chọn</span>
+            <BatchDownloadMenu onDownload={downloadZip} busy={downloadingZip} disabled={!canDownload} />
             <AssignMenu onAssign={assign} busy={assigning} />
             <Button
               size="sm"

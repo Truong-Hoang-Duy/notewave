@@ -27,7 +27,6 @@ import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import Modal from '../components/Modal'
-import SttProviderToggle from '../components/SttProviderToggle'
 import { useToast } from '../components/Toast'
 import { Card, Spinner } from '../components/ui'
 import { chatActions, TTL_OPTIONS, useChatStore } from '../hooks/useChatStore'
@@ -749,12 +748,9 @@ export default function ChatPage({ onOpenSession, onOpenNote }) {
           )}
 
           {dictating && (
-            <div className="mb-2 flex items-center justify-between gap-2 rounded-xl bg-rec-soft px-3 py-1.5 text-xs font-medium text-rec">
-              <span className="inline-flex items-center gap-2 truncate">
-                <span className="size-2 shrink-0 animate-rec-pulse rounded-full bg-rec" />
-                <span className="truncate">Đang nghe tiếng Việt… hãy nói câu hỏi</span>
-              </span>
-              <SttProviderToggle size="sm" disabled />
+            <div className="mb-2 flex items-center gap-2 rounded-xl bg-rec-soft px-3 py-1.5 text-xs font-medium text-rec">
+              <span className="size-2 shrink-0 animate-rec-pulse rounded-full bg-rec" />
+              <span className="truncate">Đang nghe tiếng Việt… hãy nói câu hỏi</span>
             </div>
           )}
 

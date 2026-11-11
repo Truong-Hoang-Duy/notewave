@@ -3,9 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import FilePicker from '../components/FilePicker'
 import GroupSelect from '../components/GroupSelect'
 import SessionDetail from '../components/SessionDetail'
-import SttProviderToggle from '../components/SttProviderToggle'
 import { Button, InlineAlert } from '../components/ui'
-import { getSttProvider } from '../hooks/useSttProvider'
 import { useUploadStatus } from '../hooks/useUploadStatus'
 import { api } from '../lib/api'
 import { ACCEPTED_MEDIA_EXTENSIONS, isVideoFile, prepareMediaForUpload } from '../lib/extractAudioFromVideo'
@@ -98,7 +96,6 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
           const { promise, abort } = api.uploadAudio(uploadTarget, {
             title: job.title,
             groupId: job.groupId,
-            provider: job.provider,
             onProgress: (p) => update(job.key, { progress: p }),
           })
           abortsRef.current.set(job.key, abort)
@@ -148,7 +145,6 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
   }, [processing])
 
   const enqueue = () => {
-    const selectedProvider = getSttProvider()
     const next = items.map((item) => {
       const stem = item.file.name.replace(/\.[^/.]+$/, '')
       const customTitle = (item.title !== undefined ? item.title : stem).trim() || stem
@@ -160,7 +156,6 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
         size: item.file.size,
         isVideo: isVideoFile(item.file),
         groupId: groupId || null,
-        provider: selectedProvider,
         status: 'queued',
         progress: 0,
         extractProgress: 0,
@@ -210,7 +205,6 @@ export default function UploadPage({ onOpenHistory, onOpenSession }) {
             Tự tách âm thanh từ video & chuyển thành văn bản có phân biệt người nói.
           </p>
         </div>
-        <SttProviderToggle size="sm" className="shrink-0" />
       </div>
 
       <FilePicker

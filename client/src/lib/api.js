@@ -1,5 +1,3 @@
-import { getSttProvider, syncSttFromHealth } from '../hooks/useSttProvider'
-
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
 /** Đường dẫn tương đối của backend ("/api/...") -> URL đầy đủ (frontend Vercel và backend Render khác domain). */
@@ -97,16 +95,9 @@ async function request(path, { method = 'GET', json, signal, raw = false, keepal
 }
 
 export const api = {
-  health: () =>
-    request('/api/health').then((res) => {
-      syncSttFromHealth(res)
-      return res
-    }),
-  getTemporaryKey: ({ diarize = true, provider = getSttProvider() } = {}) => {
-    const qs = new URLSearchParams({ diarize: diarize ? 'true' : 'false' })
-    if (provider) qs.set('provider', provider)
-    return request(`/api/temporary-key?${qs}`, { method: 'POST' })
-  },
+  health: () => request('/api/health'),
+  getTemporaryKey: ({ diarize = true } = {}) =>
+    request(`/api/temporary-key?diarize=${diarize ? 'true' : 'false'}`, { method: 'POST' }),
 
   listSessions: ({ q, source, groupId, archived, sort, signal } = {}) => {
     const params = new URLSearchParams()
@@ -191,6 +182,25 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   },
 
+  /** Tải hàng loạt nhiều phiên tài liệu về trong một thư mục nén (.zip). */
+  async exportSessionsZip(sessionIds, format = 'docx') {
+    const response = await request('/api/sessions/export-zip', {
+      method: 'POST',
+      json: { session_ids: sessionIds, format },
+      raw: true,
+    })
+    const blob = await response.blob()
+    const filename = parseFilename(response.headers.get('Content-Disposition')) || 'notewave-tai-lieu.zip'
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  },
+
   async exportNote(id, format) {
     const response = await request(`/api/notes/${id}/export?format=${format}`, { raw: true })
     const blob = await response.blob()
@@ -205,9 +215,9 @@ export const api = {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   },
 
-  /** Upload 1 file audio -> Deepgram / Gladia API (1 request = 1 phiên; tải nhiều file = nhiều request). */
-  uploadAudio: (file, { groupId, title, provider = getSttProvider(), ...options } = {}) =>
-    uploadWithProgress('/api/upload-transcribe', { file, group_id: groupId, provider, title }, options),
+  /** Upload 1 file audio -> Deepgram API (1 request = 1 phiên; tải nhiều file = nhiều request). */
+  uploadAudio: (file, { groupId, title, ...options } = {}) =>
+    uploadWithProgress('/api/upload-transcribe', { file, group_id: groupId, title }, options),
   /** Upload 1 hoặc nhiều ảnh / PDF -> gộp thành 1 phiên, Mistral OCR + rà soát từ tiếng Anh (xử lý nền). */
   ocrExtract: (files, options) => uploadWithProgress('/api/ocr-extract', { files: [].concat(files) }, options),
   /** Hỏi đáp AI trên các phiên tài liệu & ghi chú Cornell đã chọn. */

@@ -21,9 +21,7 @@ if not TEST_DATABASE_URL:
 
 # Phải đặt biến môi trường TRƯỚC khi import app (engine + settings được tạo lúc import).
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-os.environ["STT_PROVIDER"] = "auto"
 os.environ["DEEPGRAM_API_KEY"] = "test-deepgram-key"
-os.environ["GLADIA_API_KEY"] = "test-gladia-key"
 os.environ["PUBLIC_BASE_URL"] = "https://api.example.com"
 os.environ["STT_WEBHOOK_SECRET"] = "s3cret"
 os.environ["MISTRAL_API_KEY"] = "test-mistral-key"
@@ -48,7 +46,7 @@ from app.main import app  # noqa: E402
 
 from tests.mistral_fake import mistral  # noqa: E402, F401  (fixture Mistral OCR giả lập)
 from tests.storage_fake import storage  # noqa: E402, F401  (fixture Supabase Storage giả lập)
-from tests.stt_fake import stt  # noqa: E402, F401  (fixture Deepgram/Gladia giả lập)
+from tests.stt_fake import stt  # noqa: E402, F401  (fixture Deepgram giả lập)
 
 
 @pytest.fixture(scope="session")

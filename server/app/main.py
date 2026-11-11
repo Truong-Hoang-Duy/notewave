@@ -69,8 +69,6 @@ class HealthResponse(BaseModel):
     database: str  # "ok" | "error"
     database_error: str | None = None  # tên loại lỗi, không kèm chi tiết connection string
     stt_configured: bool
-    stt_provider: str | None = None  # "deepgram" | "gladia" | None
-    stt_providers: list[str] = []  # danh sách dịch vụ đã cấu hình key trên server
     ocr_configured: bool
     note_images_configured: bool  # có Supabase Storage (SUPABASE_SECRET_KEY) -> chèn được ảnh vào ghi chú
     webhook_enabled: bool
@@ -87,8 +85,6 @@ def health() -> HealthResponse:
         database="ok" if db_error is None else "error",
         database_error=db_error,
         stt_configured=current_settings.stt_configured,
-        stt_provider=current_settings.active_stt_provider,
-        stt_providers=list(current_settings.available_stt_providers),
         ocr_configured=bool(current_settings.mistral_api_key),
         note_images_configured=bool(current_settings.supabase_storage_url and current_settings.supabase_secret_key),
         webhook_enabled=current_settings.webhook_url is not None,

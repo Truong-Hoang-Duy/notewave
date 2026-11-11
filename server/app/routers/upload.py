@@ -4,7 +4,6 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.config import SttProvider
 from app.dependencies import DbDep, SettingsDep, SttDep, get_group_or_404, get_session_or_404
 from app.models.session import NoteSession, UploadStatus
 from app.services.stt import SttError, SttNotConfiguredError
@@ -44,7 +43,6 @@ async def upload_and_transcribe(
     file: UploadFile = File(...),
     title: str | None = Form(default=None, max_length=200),
     group_id: str | None = Form(default=None, max_length=32, description="Gán phiên vào nhóm ngay khi tạo (tải nhiều file)"),
-    provider: SttProvider | None = Form(default=None, description="Chọn dịch vụ STT: deepgram hoặc gladia"),
 ) -> UploadAccepted:
     """Mỗi request = 1 file = 1 phiên. Frontend tải nhiều file bằng nhiều request song song (có giới hạn)."""
     filename = Path(file.filename or "audio").name
@@ -71,7 +69,7 @@ async def upload_and_transcribe(
     )
 
     try:
-        file_id = await stt.upload_file(filename, file.file, file.content_type, provider=provider)
+        file_id = await stt.upload_file(filename, file.file, file.content_type)
         session.stt_file_id = file_id[:64]
         session.stt_transcription_id = (await stt.create_transcription(file_id, client_reference_id=session.id))[:64]
     except SttNotConfiguredError as exc:

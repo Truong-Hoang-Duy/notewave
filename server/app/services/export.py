@@ -1,4 +1,7 @@
 import io
+import re
+import zipfile
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from docx import Document
@@ -99,6 +102,46 @@ def build_docx(session: SessionRead) -> bytes:
 
     buffer = io.BytesIO()
     doc.save(buffer)
+    return buffer.getvalue()
+
+
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+
+
+def safe_filename_stem(title: str) -> str:
+    """Làm sạch tiêu đề thành tên file/thư mục hợp lệ trên Windows, macOS và iOS."""
+    cleaned = _INVALID_FILENAME_CHARS.sub(" ", title or "")
+    cleaned = " ".join(cleaned.split()).strip(" .")
+    if len(cleaned) > 120:
+        cleaned = cleaned[:120].rstrip(" .")
+    return cleaned or "Phiên ghi chú"
+
+
+def build_zip(
+    sessions: list[SessionRead],
+    format: Literal["txt", "docx", "both"] = "docx",
+    folder_name: str | None = None,
+) -> bytes:
+    """Đóng gói hàng loạt phiên tài liệu vào một thư mục nén (.zip)."""
+    buffer = io.BytesIO()
+    used_stems: set[str] = set()
+    prefix = f"{safe_filename_stem(folder_name)}/" if folder_name else ""
+
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for session in sessions:
+            base = safe_filename_stem(session.title)
+            stem = base
+            counter = 2
+            while stem.lower() in used_stems:
+                stem = f"{base} ({counter})"
+                counter += 1
+            used_stems.add(stem.lower())
+
+            if format in ("docx", "both"):
+                zf.writestr(f"{prefix}{stem}.docx", build_docx(session))
+            if format in ("txt", "both"):
+                zf.writestr(f"{prefix}{stem}.txt", build_txt(session))
+
     return buffer.getvalue()
 
 

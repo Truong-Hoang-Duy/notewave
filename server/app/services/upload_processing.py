@@ -1,4 +1,4 @@
-"""Hoàn tất một phiên upload khi dịch vụ STT (Deepgram / Gladia) báo xong — dùng chung cho polling và webhook."""
+"""Hoàn tất một phiên upload khi dịch vụ STT (Deepgram) báo xong — dùng chung cho polling và webhook."""
 
 import logging
 

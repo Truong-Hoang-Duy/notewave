@@ -1,6 +1,5 @@
 import { CheckCircle2, Languages, Mic, Pause, Play, RotateCcw, Save, Square, Users } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
-import SttProviderToggle from '../components/SttProviderToggle'
 import { useToast } from '../components/Toast'
 import TranscriptView from '../components/TranscriptView'
 import Waveform from '../components/Waveform'
@@ -168,11 +167,7 @@ export default function LivePage({ onOpenSession, onRecordingChange }) {
                 : 'Chuyển lời nói thành văn bản trực tiếp theo thời gian thực.'}
             </p>
 
-            <div className="mt-6">
-              <SttProviderToggle showLabel disabled={live.status === 'starting'} />
-            </div>
-
-            <div className="mt-5 w-full max-w-sm">
+            <div className="mt-6 w-full max-w-sm">
               <label htmlFor="session-title" className="sr-only">
                 Tên phiên
               </label>

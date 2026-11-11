@@ -73,6 +73,50 @@ def test_export_txt_and_docx(client, make_session):
     assert client.get(f"/api/sessions/{s['id']}/export", params={"format": "pdf"}).status_code == 422
 
 
+def test_export_sessions_zip_batch(client, make_session):
+    import io
+    import zipfile
+    from sqlmodel import Session
+    from app import db as app_db
+    from app.models.session import NoteSession
+
+    s1 = make_session("Buổi 1: Mở đầu / Tổng quan?", "live", [seg("1", "Nội dung buổi 1", 0, 2000)], 2000)
+    s2 = make_session("Buổi 1: Mở đầu / Tổng quan?", "upload", [seg("1", "Nội dung buổi 2 trùng tên", 0, 2000)], 2000)
+
+    res = client.post("/api/sessions/export-zip", json={"session_ids": [s1["id"], s2["id"]], "format": "both"})
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/zip"
+    assert ".zip" in res.headers["content-disposition"]
+
+    with zipfile.ZipFile(io.BytesIO(res.content)) as zf:
+        names = zf.namelist()
+        assert len(names) == 4
+        # Đều nằm trong cùng 1 thư mục gốc và tự đánh số khi trùng tiêu đề, xoá ký tự cấm (:, /, ?)
+        folders = {name.split("/")[0] for name in names}
+        assert len(folders) == 1
+        basenames = sorted(name.split("/")[1] for name in names)
+        assert basenames == [
+            "Buổi 1 Mở đầu Tổng quan (2).docx",
+            "Buổi 1 Mở đầu Tổng quan (2).txt",
+            "Buổi 1 Mở đầu Tổng quan.docx",
+            "Buổi 1 Mở đầu Tổng quan.txt",
+        ]
+        txt_files = [n for n in names if n.endswith(".txt")]
+        combined_txt = "\n".join(zf.read(n).decode("utf-8-sig") for n in txt_files)
+        assert "Nội dung buổi 1" in combined_txt
+        assert "Nội dung buổi 2 trùng tên" in combined_txt
+
+    # Phiên chưa xử lý xong trả 409, phiên không tồn tại trả 404
+    with Session(app_db.engine) as db:
+        proc = NoteSession(title="Đang xử lý", source="upload", status="processing")
+        db.add(proc)
+        db.commit()
+        proc_id = proc.id
+
+    assert client.post("/api/sessions/export-zip", json={"session_ids": [s1["id"], proc_id]}).status_code == 409
+    assert client.post("/api/sessions/export-zip", json={"session_ids": ["khong-ton-tai"]}).status_code == 404
+
+
 def test_summarize(client, make_session, monkeypatch):
     from app.models.summary import MeetingSummary
     from app.routers import sessions as sessions_router
@@ -106,8 +150,7 @@ def test_summarize_llm_failure_returns_502(client, make_session, monkeypatch):
 def test_health(client):
     body = client.get("/api/health").json()
     assert body["status"] == "ok" and body["stt_configured"] is True
-    assert body["stt_provider"] in ("deepgram", "gladia") and body["webhook_enabled"] is True
-    assert set(body["stt_providers"]) == {"deepgram", "gladia"}
+    assert body["webhook_enabled"] is True
     assert body["ocr_configured"] is True
     assert body["database"] == "ok" and body["database_error"] is None
 

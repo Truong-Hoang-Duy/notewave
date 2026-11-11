@@ -1221,3 +1221,29 @@
     - Tối ưu `SttService.upload_file` giữ tham chiếu trực tiếp tới `SpooledTemporaryFile` thay vì đọc trước `bytes` vào RAM trong `_pending_uploads`.
 - File/module đã thay đổi: `client/src/lib/extractAudioFromVideo.js` (mới), `client/src/pages/UploadPage.jsx`, `client/src/components/FilePicker.jsx`, `client/src/App.jsx`, `server/app/routers/upload.py`, `server/app/services/stt.py`, `GEMINI.md`, `CLAUDE.md`, `PROGRESS.md`.
 - Đang dang dở / chưa xong: không có.
+
+
+## [2026-11-11] — Gỡ bỏ hoàn toàn Gladia, giữ duy nhất Deepgram (`nova-3`, Tiếng Việt)
+- Lý do: Gladia không còn gói miễn phí hàng tháng theo nhu cầu sử dụng của người dùng; giữ duy nhất **Deepgram (`nova-3`, `language=vi`)**.
+- Đã làm:
+  - **Backend (`server/app/config.py`, `main.py`, `services/stt.py`, `routers/temporary_key.py`, `routers/upload.py`, `services/transcript.py`, `services/upload_processing.py`, `tests/*`):**
+    - Xoá `SttProvider`, `stt_provider`, `gladia_api_key`, `gladia_api_base_url`, `active_stt_provider`, `available_stt_providers` và toàn bộ luồng gọi `/v2/live` / `/v2/upload` / `/v2/pre-recorded` của Gladia.
+    - Giữ nguyên toàn bộ luồng Deepgram `nova-3` (`language=vi`): cấp JWT tạm thời qua `/v1/auth/grant` kèm fallback cấp token 1 lần qua WebSocket proxy `/api/live-ws` khi key trả 403, và stream `SpooledTemporaryFile` lên `/v1/listen` cho file audio/video.
+    - Bỏ tham số `provider` ở `/api/temporary-key`, `/api/upload-transcribe` và bỏ `stt_provider`/`stt_providers` khỏi `/api/health`.
+  - **Frontend (`client/src/lib/liveStt.js`, `api.js`, `App.jsx`, `pages/LivePage.jsx`, `pages/UploadPage.jsx`, `pages/ChatPage.jsx`, `hooks/useQuickDictation.js`, `lib/extractAudioFromVideo.js`):**
+    - Xoá hẳn `client/src/components/SttProviderToggle.jsx` và `client/src/hooks/useSttProvider.js` (giúp thanh Header và giao diện trên iPhone 11 gọn thoáng hơn).
+    - Thu gọn `liveStt.js` về thuần `MediaRecorder` + Deepgram WebSocket, tự dọn key `notewave:stt-provider` cũ trong `localStorage`.
+  - **Cấu hình & Tài liệu:** cập nhật `.env.example`, `.env`, `render.yaml`, `run-dev.js`, `README.md`, `DEPLOY.md`, `GEMINI.md`, `CLAUDE.md`, `PROGRESS.md`.
+- File/module đã thay đổi: `server/app/config.py`, `server/app/main.py`, `server/app/services/stt.py`, `server/app/routers/temporary_key.py`, `server/app/routers/upload.py`, `server/app/services/transcript.py`, `server/app/services/upload_processing.py`, `server/tests/conftest.py`, `server/tests/stt_fake.py`, `server/tests/test_upload_stt.py`, `server/tests/test_sessions.py`, `client/src/components/SttProviderToggle.jsx` (xoá), `client/src/hooks/useSttProvider.js` (xoá), `client/src/lib/liveStt.js`, `client/src/lib/api.js`, `client/src/App.jsx`, `client/src/pages/LivePage.jsx`, `client/src/pages/UploadPage.jsx`, `client/src/pages/ChatPage.jsx`, `client/src/hooks/useQuickDictation.js`, `client/src/lib/extractAudioFromVideo.js`, `.env.example`, `render.yaml`, `run-dev.js`, `README.md`, `DEPLOY.md`, `GEMINI.md`, `CLAUDE.md`, `PROGRESS.md`.
+- Đang dang dở / chưa xong: không có.
+
+## [2026-11-11] — Chọn nhiều phiên trong Lịch sử và tải hàng loạt tài liệu về 1 thư mục nén `.zip`
+- Đã làm:
+  - **Backend (`models/session.py`, `services/export.py`, `routers/sessions.py`, `tests/test_sessions.py`):**
+    - Thêm `POST /api/sessions/export-zip` (`BatchExportRequest`: `session_ids`, `format: "docx" | "txt" | "both"`).
+    - `services/export.py::build_zip` + `safe_filename_stem`: đóng gói toàn bộ các phiên vào 1 thư mục gốc bên trong file `.zip` (`ZIP_DEFLATED`), tự làm sạch ký tự cấm trên Windows/macOS/iOS và tự đánh số `(2)`, `(3)`... khi nhiều phiên trùng tiêu đề; nếu các phiên cùng thuộc 1 nhóm thì đặt tên thư mục/file zip theo tên nhóm đó.
+  - **Frontend (`client/src/lib/api.js`, `client/src/pages/HistoryPage.jsx`):**
+    - Thêm `api.exportSessionsZip(sessionIds, format)` tải về file `.zip` theo `Content-Disposition`.
+    - Thêm menu nút **Tải ZIP** (`BatchDownloadMenu`) trên thanh thao tác nổi khi chọn các phiên trong Lịch sử với 3 tuỳ chọn: `Word (.docx)`, `Văn bản (.txt)`, `Cả hai (.docx + .txt)`. Nếu chọn tất cả mà có phiên đang xử lý dở thì tự động nén các phiên đã hoàn tất và báo rõ số phiên bỏ qua.
+- File/module đã thay đổi: `server/app/models/session.py`, `server/app/services/export.py`, `server/app/routers/sessions.py`, `server/tests/test_sessions.py`, `client/src/lib/api.js`, `client/src/pages/HistoryPage.jsx`, `GEMINI.md`, `CLAUDE.md`, `PROGRESS.md`.
+- Đang dang dở / chưa xong: không có.

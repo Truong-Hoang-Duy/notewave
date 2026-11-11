@@ -1,7 +1,6 @@
 import { CloudOff, FileAudio, History, MessageSquareText, Mic, NotebookPen, RefreshCw, ScanText, ServerCog } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import SessionDetail from './components/SessionDetail'
-import SttProviderToggle from './components/SttProviderToggle'
 import { Spinner } from './components/ui'
 import { purgeExpiredChatThreads } from './hooks/useChatStore'
 import { useNetworkStatus } from './hooks/useNetworkStatus'
@@ -122,7 +121,6 @@ export default function App() {
             })}
           </nav>
           <div className="flex items-center gap-2">
-            <SttProviderToggle size="sm" disabled={recording} />
             {!isOnline && (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-2.5 py-1 text-xs font-semibold text-warn">
                 <CloudOff className="size-3.5" />

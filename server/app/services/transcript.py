@@ -17,7 +17,7 @@ def utterances_to_segments(
     utterances: Iterable[dict[str, Any]],
     default_language: str | None = None,
 ) -> list[TranscriptSegment]:
-    """Gom các utterance/word liên tiếp cùng người nói (từ Deepgram / Gladia) thành các đoạn TranscriptSegment."""
+    """Gom các utterance/word liên tiếp cùng người nói (từ Deepgram) thành các đoạn TranscriptSegment."""
     segments: list[TranscriptSegment] = []
     for item in utterances:
         text = (item.get("text") or item.get("transcript") or item.get("punctuated_word") or item.get("word") or "").strip()

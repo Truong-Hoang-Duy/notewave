@@ -56,22 +56,22 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
   - Dùng Postgres + **Storage** của Supabase (Storage cho ảnh trong Ghi chú — `services/storage.py` gọi REST bằng `httpx` từ
     backend với `SUPABASE_SECRET_KEY`, bucket private). Chưa dùng Supabase Auth, không dùng SDK Supabase ở client.
   - Bảng tạo bằng `SQLModel.metadata.create_all` lúc khởi động (không dùng migrations của Supabase CLI).
-- **Speech-to-Text:** **Deepgram API (`nova-3`) và Gladia API (`v2`)** — chọn qua biến môi trường `STT_PROVIDER=auto|deepgram|gladia`
-  (quyết định 2026-11-06).
-  - Ghi âm trực tiếp → **Real-time WebSocket API** (`client/src/lib/liveStt.js`), kết nối thẳng từ trình duyệt bằng
-    khoá/URL phiên tạm thời lấy từ `POST /api/temporary-key` (Deepgram `/v1/auth/grant` + `MediaRecorder`; Gladia `/v2/live` + PCM 16kHz).
-  - Tải file lên → `services/stt.py`: Deepgram `POST /v1/listen` (`diarize=true&utterances=true`) hoặc Gladia `POST /v2/upload` →
-    `POST /v2/pre-recorded` (`diarization=true`) → lấy kết quả qua polling hoặc webhook (`/api/webhooks/stt`). Luôn thực hiện từ
-    backend, dùng `DEEPGRAM_API_KEY` / `GLADIA_API_KEY` (không expose ra client).
+- **Speech-to-Text:** **Deepgram API (`nova-3`, Tiếng Việt `language=vi`)** (quyết định 2026-11-11 — gỡ bỏ Gladia).
+  - Ghi âm trực tiếp → **Real-time WebSocket API** (`client/src/lib/liveStt.js` + `MediaRecorder`), kết nối bằng
+    JWT tạm thời lấy từ `POST /api/temporary-key` (`POST /v1/auth/grant`; nếu key có quyền `Default` trả 403 thì tự fallback
+    cấp token 1 lần qua WebSocket proxy `/api/live-ws`).
+  - Tải file lên → `services/stt.py`: Deepgram `POST /v1/listen` (`diarize=true&utterances=true&smart_format=true&language=vi`)
+    → lấy kết quả qua polling hoặc webhook (`/api/webhooks/stt`). Luôn thực hiện từ backend, dùng `DEEPGRAM_API_KEY`
+    (không expose ra client).
 - **OCR (Quét tài liệu):** Mistral OCR API (`mistral-ocr-latest`) qua SDK `mistralai`, luôn từ backend với
   `MISTRAL_API_KEY`. Chưa có storage public nên: upload file lên Mistral Files API (`purpose="ocr"`) → lấy signed URL
   ngắn hạn của chính file đó → `ocr.process` (`document_url` cho PDF, `image_url` cho ảnh) → xoá file trên Mistral.
 
 ## 3. Quy tắc bảo mật quan trọng — LUÔN tuân thủ
 
-- **Không bao giờ** trả `DEEPGRAM_API_KEY` hay `GLADIA_API_KEY` (key chính) về client. Client chỉ nhận khoá/URL
+- **Không bao giờ** trả `DEEPGRAM_API_KEY` (key chính) về client. Client chỉ nhận khoá/URL
   phiên tạm thời ngắn hạn qua endpoint `POST /api/temporary-key`. `MISTRAL_API_KEY` cũng chỉ dùng ở backend.
-- Mọi API key (Deepgram, Gladia, LLM provider cho PydanticAI, v.v.) đọc từ biến môi trường qua
+- Mọi API key (Deepgram, LLM provider cho PydanticAI, v.v.) đọc từ biến môi trường qua
   `pydantic-settings`, không hard-code trong source.
 - CORS ở backend đọc danh sách origin cho phép từ biến môi trường `ALLOWED_ORIGINS`,
   không để `*` khi build cho production.
@@ -84,12 +84,13 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 
 | Endpoint | Method | Chức năng |
 |---|---|---|
-| `/api/temporary-key` | POST | Sinh khoá/URL phiên tạm thời cho luồng ghi âm trực tiếp (`?diarize=true\|false&provider=deepgram\|gladia`) |
+| `/api/temporary-key` | POST | Sinh khoá/URL phiên tạm thời cho luồng ghi âm trực tiếp (`?diarize=true\|false`); kèm WebSocket proxy `/api/live-ws` khi key Deepgram không có quyền `/v1/auth/grant` |
 | `/api/sessions` | POST/GET | Tạo/liệt kê phiên ghi chú (field `source`: `"live"`, `"upload"` hoặc `"ocr"`) |
 | `/api/sessions/{id}` | GET/PATCH/DELETE | Xem/đổi tên (`{"title"}`)/xoá 1 phiên |
 | `/api/sessions/{id}/summarize` | POST | Gọi PydanticAI `summary_agent`, trả `MeetingSummary` |
 | `/api/sessions/{id}/export` | GET | Xuất `.txt` hoặc `.docx` (query `?format=`) |
-| `/api/upload-transcribe` | POST | Nhận 1 file audio (+ `group_id`? gán nhóm ngay, `provider`? `deepgram\|gladia`), gọi Deepgram/Gladia API, tạo session `processing`. Tải nhiều file = nhiều request (frontend xếp hàng, tối đa 2 song song), mỗi file 1 phiên |
+| `/api/sessions/export-zip` | POST | Tải hàng loạt nhiều phiên tài liệu trong 1 thư mục `.zip`: `{"session_ids": [...], "format": "docx" \| "txt" \| "both"}` |
+| `/api/upload-transcribe` | POST | Nhận 1 file audio/video (+ `group_id`? gán nhóm ngay), gọi Deepgram API, tạo session `processing`. Tải nhiều file = nhiều request (frontend xếp hàng, tối đa 2 song song), mỗi file 1 phiên |
 | `/api/upload-transcribe/{id}/status` | GET | Poll trạng thái xử lý file (dùng khi chưa có webhook) |
 | `/api/webhooks/stt` | POST | Nhận callback từ dịch vụ STT khi transcription xong |
 | `/api/ocr-extract` | POST | Nhận 1–20 ảnh/PDF (multipart `files` lặp lại theo đúng thứ tự; `file` đơn vẫn nhận), kiểm tra định dạng / mỗi file ≤50MB / tổng ≤200MB / tổng ≤1000 trang, gộp thành MỘT session `source="ocr"` `processing`, OCR + rà soát chạy nền; trả 202 `{session_id, status, pages, files}` |
@@ -115,7 +116,7 @@ tóm tắt bằng AI, và xuất file .txt/.docx.
 | `/api/tags` | GET/POST | Liệt kê tag (kèm `note_count`) / tạo `{name}` (bỏ `#` đầu, gộp khoảng trắng, không trùng tên) |
 | `/api/tags/{id}` | PATCH/DELETE | Đổi tên / xoá tag (gỡ khỏi mọi note, note không bị xoá) |
 | `/api/chat/ask` | POST | Chat AI Agent tự nhiên (`question`, `session_ids`?, `note_ids`?, `history`?): không bắt buộc chọn trước tài liệu; Agent có 4 tool (`list_recent_documents`, `search_user_documents`, `read_session_content`, `read_note_content`) tự tìm & đọc bài giảng/ghi chú trong DB khi cần → `{answer_md, used_sources, model}`; lịch sử lưu tạm `localStorage` kèm TTL tự xoá |
-| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`, `stt_configured`, `stt_provider`, `stt_providers`, `ocr_configured`, `note_images_configured`, `webhook_enabled`; luôn HTTP 200 |
+| `/api/health` | GET | Health check (Render) + frontend gọi khi mở app để "đánh thức" backend. Chạy `SELECT 1`: trả `database` `"ok"`/`"error"` (+ `database_error` = tên loại lỗi), `status` `"ok"`/`"degraded"`, `stt_configured`, `ocr_configured`, `note_images_configured`, `webhook_enabled`; luôn HTTP 200 |
 
 Ghi chú:
 - `GET /api/sessions` hỗ trợ `?q=` (tìm theo tiêu đề/nội dung), `?source=live|upload|ocr`,
@@ -227,7 +228,7 @@ Ghi chú:
   `schema_translate_map={None: "notewave_test"}` (tên schema ghi rõ trong mọi câu lệnh — không dùng `search_path`
   vì Transaction pooler không giữ). TRUNCATE sau mỗi test chỉ trên schema test (có assert chặn). SQL thô trong app
   dùng `db._qualified()`, trong test dùng `tests.helpers.qualified()` — **tuyệt đối không viết SQL thô không kèm
-  schema trong test** (sẽ đụng `public` = dữ liệu thật). Deepgram/Gladia giả lập bằng `httpx.MockTransport`
+  schema trong test** (sẽ đụng `public` = dữ liệu thật). Deepgram giả lập bằng `httpx.MockTransport`
   (`tests/stt_fake.py`), Mistral OCR bằng `tests/mistral_fake.py`, LLM giả lập bằng monkeypatch / `FunctionModel`
   — test không gọi API thật. Thêm endpoint mới thì
   thêm test tương ứng.
@@ -236,10 +237,8 @@ Ghi chú:
 
 Backend (`/.env` ở gốc repo hoặc `server/.env`; trên Render khai báo trong Dashboard / `render.yaml`):
 ```
-STT_PROVIDER=            # auto (mặc định: ưu tiên Deepgram rồi tới Gladia) | deepgram | gladia
 DEEPGRAM_API_KEY=        # Deepgram ($200 free credit)
 DEEPGRAM_MODEL=          # mặc định nova-3
-GLADIA_API_KEY=          # Gladia (10h free/tháng)
 DATABASE_URL=            # BẮT BUỘC, connection string Transaction pooler của Supabase — local dùng chung với production
 TEST_DATABASE_URL=       # tuỳ chọn, chỉ cho pytest; trống = DATABASE_URL (test chỉ dùng schema notewave_test)
 ALLOWED_ORIGINS=         # comma-separated, danh sách domain frontend được phép gọi API

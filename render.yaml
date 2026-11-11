@@ -13,14 +13,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
-      - key: STT_PROVIDER # auto | deepgram | gladia
-        value: auto
       - key: DEEPGRAM_API_KEY # https://console.deepgram.com ($200 free credit)
         sync: false
       - key: DEEPGRAM_MODEL
         value: nova-3
-      - key: GLADIA_API_KEY # https://app.gladia.io (10h free/tháng)
-        sync: false
       - key: DATABASE_URL # Supabase > Connect > Transaction pooler (cổng 6543, thêm ?sslmode=require)
         sync: false
       - key: ALLOWED_ORIGINS # vd: https://notewave.vercel.app
